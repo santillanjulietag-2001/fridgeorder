@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+*.log
+.DS_Store
+apps/web/dev-dist/
+coverage/
+.vite/
+*.local
+scripts/tmp-*.json

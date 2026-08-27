@@ -1,0 +1,16 @@
+{
+  "name": "fridgeorder",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev -w @fridgeorder/api",
+    "dev:web": "npm run dev -w @fridgeorder/web",
+    "build": "npm run build -w @fridgeorder/shared && npm run build -w @fridgeorder/api && npm run build -w @fridgeorder/web",
+    "build:shared": "npm run build -w @fridgeorder/shared",
+    "start:api": "npm run start -w @fridgeorder/api"
+  }
+}

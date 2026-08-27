@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>FridgeOrder</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <h1>FridgeOrder</h1>
+      <p class="muted">Captura el producto de esta página a tu lista.</p>
+
+      <section id="loginSection">
+        <label>API</label>
+        <input id="apiUrl" value="http://localhost:4200/api" />
+        <label>Email</label>
+        <input id="email" type="email" />
+        <label>Contraseña</label>
+        <input id="password" type="password" />
+        <button id="loginBtn">Entrar</button>
+      </section>
+
+      <section id="captureSection" hidden>
+        <p id="userLabel" class="muted"></p>
+        <div id="preview" class="preview"></div>
+        <button id="captureBtn">Añadir a mi lista</button>
+        <button id="logoutBtn" class="ghost">Salir</button>
+      </section>
+
+      <p id="status"></p>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

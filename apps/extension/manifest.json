@@ -1,0 +1,56 @@
+{
+  "manifest_version": 3,
+  "name": "FridgeOrder Captura",
+  "version": "1.0.0",
+  "description": "Captura productos de Mercadona, BonÀrea, Lidl y otros supers hacia tu lista FridgeOrder.",
+  "permissions": ["activeTab", "storage", "scripting"],
+  "host_permissions": [
+    "http://localhost:4200/*",
+    "https://tienda.mercadona.es/*",
+    "https://www.mercadona.es/*",
+    "https://www.bonarea.com/*",
+    "https://www.lidl.es/*",
+    "https://*/*",
+    "http://*/*"
+  ],
+  "action": {
+    "default_title": "FridgeOrder",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://tienda.mercadona.es/*",
+        "https://www.mercadona.es/*",
+        "https://www.bonarea.com/*",
+        "https://www.lidl.es/*",
+        "https://*/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "commands": {
+    "capture-product": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Y",
+        "mac": "Command+Shift+Y"
+      },
+      "description": "Capturar producto actual"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
