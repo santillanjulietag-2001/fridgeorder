@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, nextTick, onMounted, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { STORE_LABELS, CATEGORY_ORDER, type Category, type Store } from '@fridgeorder/shared';
 import { useNeedsStore, type NeedItem } from '@/stores/needs';
@@ -128,12 +128,19 @@ interface SpokenSession {
   origin?: 'voice' | 'suggested';
 }
 
+interface SuggestPreviewItem {
+  id: number;
+  text: string;
+  accepted: boolean;
+}
+
+let suggestItemId = 0;
+
 const spokenSession = ref<SpokenSession | null>(null);
 
-/** Prelista sí/no antes de buscar (sugerencias nutricionales). */
+/** Prelista sí/no antes de buscar (foto, IA, especial, voz). */
 const suggestPreview = ref<{
-  items: string[];
-  accepted: Record<number, boolean>;
+  items: SuggestPreviewItem[];
   basedOn?: { goals: string[]; dietStyle: string };
 } | null>(null);
 
@@ -155,7 +162,7 @@ const canSpokenForward = computed(() => {
 });
 const suggestAcceptedCount = computed(() => {
   if (!suggestPreview.value) return 0;
-  return Object.values(suggestPreview.value.accepted).filter(Boolean).length;
+  return suggestPreview.value.items.filter((row) => row.accepted && row.text.trim()).length;
 });
 
 function storeBreakdown(items: typeof needs.items) {
@@ -392,15 +399,8 @@ async function finishSpokenList() {
         'No detecté productos de compra en lo que dijiste. Di solo nombres (ej. leche, pan, tomates), sin opiniones.';
       return;
     }
-    spokenSession.value = {
-      queries: data.items,
-      currentIndex: 0,
-      choices: {},
-      transcript: text,
-      origin: 'voice',
-    };
-    saveSpokenSession();
-    await searchForQuery(data.items[0]!);
+    spokenSession.value = null;
+    openSuggestPreview(data.items, { goals: [], dietStyle: 'voz' });
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Error al procesar la lista hablada';
   } finally {
@@ -423,15 +423,7 @@ async function startSuggestedNeeds() {
       error.value = 'No pude generar sugerencias nutricionales básicas.';
       return;
     }
-    const accepted: Record<number, boolean> = {};
-    data.items.forEach((_, i) => {
-      accepted[i] = true;
-    });
-    suggestPreview.value = {
-      items: data.items,
-      accepted,
-      basedOn: data.basedOn,
-    };
+    openSuggestPreview(data.items, data.basedOn);
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Error al sugerir necesidades';
   } finally {
@@ -466,15 +458,7 @@ async function submitContextSuggest() {
     }
     showContextModal.value = false;
     contextText.value = '';
-    const accepted: Record<number, boolean> = {};
-    data.items.forEach((_, i) => {
-      accepted[i] = true;
-    });
-    suggestPreview.value = {
-      items: data.items,
-      accepted,
-      basedOn: { goals: [], dietStyle: 'contexto' },
-    };
+    openSuggestPreview(data.items, { goals: [], dietStyle: 'contexto' });
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Error al generar la lista';
   } finally {
@@ -543,15 +527,7 @@ async function onPhotoSelected(ev: Event) {
       error.value = 'No pude reconocer productos. Prueba otra foto más cercana.';
       return;
     }
-    const accepted: Record<number, boolean> = {};
-    identified.items.forEach((_, i) => {
-      accepted[i] = true;
-    });
-    suggestPreview.value = {
-      items: identified.items,
-      accepted,
-      basedOn: { goals: [], dietStyle: 'foto' },
-    };
+    openSuggestPreview(identified.items, { goals: [], dietStyle: 'foto' });
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Error al identificar la foto';
   } finally {
@@ -559,32 +535,46 @@ async function onPhotoSelected(ev: Event) {
   }
 }
 
-function setSuggestAccepted(index: number, value: boolean) {
+function openSuggestPreview(queries: string[], basedOn?: { goals: string[]; dietStyle: string }) {
+  suggestPreview.value = {
+    items: queries.map((text) => ({
+      id: ++suggestItemId,
+      text,
+      accepted: true,
+    })),
+    basedOn,
+  };
+}
+
+function onSuggestCheck(row: SuggestPreviewItem, ev: Event) {
+  row.accepted = (ev.target as HTMLInputElement).checked;
+}
+
+async function addSuggestItem() {
   if (!suggestPreview.value) return;
-  suggestPreview.value.accepted = { ...suggestPreview.value.accepted, [index]: value };
+  suggestPreview.value.items.push({
+    id: ++suggestItemId,
+    text: '',
+    accepted: true,
+  });
+  await nextTick();
+  const inputs = document.querySelectorAll<HTMLInputElement>('.suggest-edit');
+  inputs[inputs.length - 1]?.focus();
 }
 
 function acceptAllSuggest() {
   if (!suggestPreview.value) return;
-  const accepted: Record<number, boolean> = {};
-  suggestPreview.value.items.forEach((_, i) => {
-    accepted[i] = true;
-  });
-  suggestPreview.value.accepted = accepted;
+  for (const row of suggestPreview.value.items) row.accepted = true;
 }
 
 function rejectAllSuggest() {
   if (!suggestPreview.value) return;
-  const accepted: Record<number, boolean> = {};
-  suggestPreview.value.items.forEach((_, i) => {
-    accepted[i] = false;
-  });
-  suggestPreview.value.accepted = accepted;
+  for (const row of suggestPreview.value.items) row.accepted = false;
 }
 
 const allSuggestAccepted = computed(() => {
   if (!suggestPreview.value?.items.length) return false;
-  return suggestPreview.value.items.every((_, i) => suggestPreview.value!.accepted[i]);
+  return suggestPreview.value.items.every((row) => row.accepted);
 });
 
 function toggleSuggestAll() {
@@ -598,22 +588,41 @@ function closeSuggestPreview() {
 
 async function confirmSuggestPreview() {
   if (!suggestPreview.value) return;
-  const queries = suggestPreview.value.items.filter((_, i) => suggestPreview.value!.accepted[i]);
+  const queries = suggestPreview.value.items
+    .filter((row) => row.accepted)
+    .map((row) => row.text.trim().replace(/\s+/g, ' '))
+    .filter(Boolean);
   if (!queries.length) {
     error.value = 'Acepta al menos un producto de la prelista.';
     return;
   }
-  const fromPhoto = suggestPreview.value.basedOn?.dietStyle === 'foto';
+  const style = suggestPreview.value.basedOn?.dietStyle;
+  const transcript =
+    style === 'foto'
+      ? '(productos detectados en foto)'
+      : style === 'voz'
+        ? '(lista hablada)'
+        : '(sugerido según necesidades nutricionales)';
   suggestPreview.value = null;
   spokenSession.value = {
     queries,
     currentIndex: 0,
     choices: {},
-    transcript: fromPhoto ? '(productos detectados en foto)' : '(sugerido según necesidades nutricionales)',
-    origin: 'suggested',
+    transcript,
+    origin: style === 'voz' ? 'voice' : 'suggested',
   };
   saveSpokenSession();
   await searchForQuery(queries[0]!);
+}
+
+async function commitSpokenQuery() {
+  if (!spokenSession.value) return;
+  const idx = spokenSession.value.currentIndex;
+  const query = (spokenSession.value.queries[idx] || '').trim().replace(/\s+/g, ' ');
+  if (!query) return;
+  spokenSession.value.queries[idx] = query;
+  saveSpokenSession();
+  if (query !== name.value.trim()) await searchForQuery(query);
 }
 
 async function searchSupers() {
@@ -1266,24 +1275,26 @@ async function confirmReset() {
       </div>
     </div>
 
+    <Teleport to="body">
     <div
       v-if="suggestPreview"
-      class="modal-backdrop modal-backdrop--top"
+      class="modal-backdrop modal-backdrop--top suggest-preview-backdrop"
       @click.self="closeSuggestPreview"
     >
       <div class="modal-panel results-modal suggest-preview" role="dialog" aria-modal="true">
         <div class="results-header">
           <div>
-            <h3>Prelista</h3>
-            <p v-if="suggestPreview.basedOn?.dietStyle === 'foto'" class="muted" style="margin: 0.2rem 0 0">
-              productos detectados en la foto
-            </p>
-            <p
-              v-else-if="suggestPreview.basedOn?.dietStyle && suggestPreview.basedOn.dietStyle !== 'contexto'"
-              class="muted"
-              style="margin: 0.2rem 0 0"
-            >
-              dieta: {{ suggestPreview.basedOn.dietStyle }}
+            <h3>Revisa y corrige</h3>
+            <p class="muted" style="margin: 0.2rem 0 0">
+              Edita cada nombre antes de buscar.
+              <template v-if="suggestPreview.basedOn?.dietStyle === 'foto'"> Foto.</template>
+              <template v-else-if="suggestPreview.basedOn?.dietStyle === 'voz'"> Lista hablada.</template>
+              <template v-else-if="suggestPreview.basedOn?.dietStyle === 'contexto'"> Lista especial.</template>
+              <template
+                v-else-if="suggestPreview.basedOn?.dietStyle && suggestPreview.basedOn.dietStyle !== 'contexto'"
+              >
+                Dieta: {{ suggestPreview.basedOn.dietStyle }}.
+              </template>
             </p>
           </div>
           <button
@@ -1297,20 +1308,36 @@ async function confirmReset() {
           </button>
         </div>
         <div class="results-list suggest-list">
-          <label
-            v-for="(item, index) in suggestPreview.items"
-            :key="`${item}-${index}`"
+          <div
+            v-for="row in suggestPreview.items"
+            :key="row.id"
             class="suggest-row"
-            :class="{ accepted: suggestPreview.accepted[index], rejected: !suggestPreview.accepted[index] }"
+            :class="{ accepted: row.accepted, rejected: !row.accepted }"
           >
             <input
               class="need-check"
               type="checkbox"
-              :checked="suggestPreview.accepted[index]"
-              @click.prevent="setSuggestAccepted(index, !suggestPreview.accepted[index])"
+              :checked="row.accepted"
+              :aria-label="`Incluir ${row.text || 'producto'}`"
+              @change="onSuggestCheck(row, $event)"
             />
-            <strong>{{ item }}</strong>
-          </label>
+            <input
+              class="suggest-edit"
+              type="text"
+              maxlength="80"
+              v-model="row.text"
+              :aria-label="'Editar ' + (row.text || 'producto')"
+              placeholder="Nombre del producto"
+              autocomplete="off"
+              autocorrect="off"
+              spellcheck="false"
+              @click.stop
+              @keydown.enter.prevent
+            />
+          </div>
+          <button class="suggest-add" type="button" @click="addSuggestItem">
+            + Añadir producto
+          </button>
         </div>
         <div class="results-footer suggest-footer">
           <button
@@ -1359,6 +1386,7 @@ async function confirmReset() {
         </div>
       </div>
     </div>
+    </Teleport>
 
     <Teleport to="body">
     <div
@@ -1414,8 +1442,19 @@ async function confirmReset() {
           </button>
         </div>
         <div class="results-query-banner" aria-live="polite">
-          <strong class="results-query-name">
-            {{ spokenActive ? spokenCurrentQuery : searchQueryLabel || name || '…' }}
+          <input
+            v-if="spokenSession"
+            class="results-query-name results-query-edit"
+            type="text"
+            maxlength="80"
+            v-model="spokenSession.queries[spokenSession.currentIndex]"
+            aria-label="Editar producto a buscar"
+            :disabled="searching || picking"
+            @keydown.enter.prevent="commitSpokenQuery"
+            @blur="commitSpokenQuery"
+          />
+          <strong v-else class="results-query-name">
+            {{ searchQueryLabel || name || '…' }}
           </strong>
           <span class="results-query-count">
             <template v-if="searching">Buscando…</template>
@@ -2620,15 +2659,46 @@ async function confirmReset() {
   gap: 0.65rem;
   width: 100%;
   margin: 0;
-  padding: 0.55rem 0.65rem;
+  padding: 0.45rem 0.65rem;
   box-sizing: border-box;
-  cursor: pointer;
 }
-.suggest-row strong {
+.suggest-preview-backdrop {
+  z-index: 125;
+}
+.suggest-edit {
   flex: 1;
   min-width: 0;
+  font-size: 16px;
   font-weight: 600;
   line-height: 1.35;
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem 0.65rem;
+  outline: none;
+  pointer-events: auto;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.suggest-edit:focus {
+  border-color: var(--accent);
+  background: rgba(0, 0, 0, 0.22);
+}
+.suggest-edit::placeholder {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.suggest-add {
+  align-self: flex-start;
+  margin: 0.15rem 0.65rem 0.25rem;
+  padding: 0.35rem 0.15rem;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
 }
 .suggest-row.accepted {
   background: var(--accent-soft);
@@ -3037,6 +3107,24 @@ async function confirmReset() {
   line-height: 1.25;
   color: var(--text);
   word-break: break-word;
+}
+.results-query-edit {
+  font: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  color: inherit;
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 0.2rem 0.45rem;
+  outline: none;
+  word-break: normal;
+}
+.results-query-edit:focus {
+  border-color: var(--accent);
+}
+.results-query-edit:disabled {
+  opacity: 0.7;
 }
 .results-query-count {
   flex: 0 0 auto;

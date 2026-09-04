@@ -12,6 +12,7 @@ import {
   suggestContextSchema,
 } from '@fridgeorder/shared';
 import { requireAuth, type AuthRequest } from '../middleware/auth.js';
+import { config } from '../config.js';
 import { MealPreferences } from '../models/MealPreferences.js';
 import { NeedItem } from '../models/NeedItem.js';
 import { PantryItem } from '../models/PantryItem.js';
@@ -126,6 +127,13 @@ needsRouter.post('/suggest-context', async (req: AuthRequest, res) => {
 needsRouter.post('/identify-product', async (req: AuthRequest, res) => {
   const parsed = identifyProductImageSchema.safeParse(req.body || {});
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  if (!config.openaiApiKey) {
+    return res.status(503).json({
+      error:
+        'Para reconocer fotos hace falta OPENAI_API_KEY en el archivo .env. Sin clave, voz y heurísticas sí funcionan; la foto no.',
+    });
+  }
 
   const result = await identifyProductFromImage(parsed.data.imageDataUrl);
   if (!result?.items?.length) {

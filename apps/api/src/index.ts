@@ -11,9 +11,11 @@ import { ingestRouter } from './routes/ingest.js';
 import { pantryRouter } from './routes/pantry.js';
 import { mealsRouter } from './routes/meals.js';
 import { householdsRouter } from './routes/households.js';
+import { ensureDemoUser } from './seed.js';
 
 async function main() {
   await connectDb();
+  await ensureDemoUser();
 
   const app = express();
   app.use(
