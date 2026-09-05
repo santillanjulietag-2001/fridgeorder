@@ -10,6 +10,7 @@ import { tripsRouter } from './routes/trips.js';
 import { ingestRouter } from './routes/ingest.js';
 import { pantryRouter } from './routes/pantry.js';
 import { mealsRouter } from './routes/meals.js';
+import { recipesRouter } from './routes/recipes.js';
 import { householdsRouter } from './routes/households.js';
 import { ensureDemoUser } from './seed.js';
 
@@ -41,6 +42,7 @@ async function main() {
   app.use('/api/ingest', ingestRouter);
   app.use('/api/pantry', pantryRouter);
   app.use('/api/meals', mealsRouter);
+  app.use('/api/recipes', recipesRouter);
   app.use('/api/households', householdsRouter);
 
   app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

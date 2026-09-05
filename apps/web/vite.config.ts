@@ -8,13 +8,13 @@ export default defineConfig({
     vue(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg'],
+      includeAssets: ['favicon.svg', 'logo.svg'],
       manifest: {
         name: 'FridgeOrder',
         short_name: 'FridgeOrder',
         description: 'Lista de súper, compra con voz y plan de comidas',
-        theme_color: '#111827',
-        background_color: '#0b1220',
+        theme_color: '#121212',
+        background_color: '#0a0a0a',
         display: 'standalone',
         lang: 'es',
         start_url: '/',

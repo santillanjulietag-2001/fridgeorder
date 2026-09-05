@@ -60,11 +60,17 @@ export const useAuthStore = defineStore('auth', () => {
   function logout() {
     clearTokens();
     user.value = null;
+    replaySplash();
   }
 
   function markSplashSeen() {
     splashSeen.value = true;
     sessionStorage.setItem('fo_splash_seen', '1');
+  }
+
+  function replaySplash() {
+    splashSeen.value = false;
+    sessionStorage.removeItem('fo_splash_seen');
   }
 
   async function updateSettings(partial: Partial<UserSettings>) {
@@ -85,6 +91,7 @@ export const useAuthStore = defineStore('auth', () => {
     register,
     logout,
     markSplashSeen,
+    replaySplash,
     updateSettings,
   };
 });

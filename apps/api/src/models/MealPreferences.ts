@@ -33,6 +33,7 @@ export interface IMealPreferences {
   householdId?: Types.ObjectId;
   onboardingCompleted: boolean;
   goals: NutritionGoal[];
+  otherGoal: string;
   dietStyle: DietStyle;
   adults: number;
   children: number;
@@ -92,6 +93,7 @@ const mealPreferencesSchema = new Schema<IMealPreferences>(
     householdId: { type: Schema.Types.ObjectId, ref: 'Household' },
     onboardingCompleted: { type: Boolean, default: false },
     goals: [{ type: String }],
+    otherGoal: { type: String, default: '' },
     dietStyle: { type: String, default: 'general' },
     adults: { type: Number, default: 2 },
     children: { type: Number, default: 0 },

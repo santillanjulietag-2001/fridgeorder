@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { STORE_LABELS, CATEGORY_ORDER, type Category, type Store } from '@fridgeorder/shared';
 import { useNeedsStore, type NeedItem } from '@/stores/needs';
@@ -36,6 +37,9 @@ const STORE_LOGOS: Record<Store, string> = {
 };
 
 const needs = useNeedsStore();
+const route = useRoute();
+const router = useRouter();
+const searchInput = ref<HTMLInputElement | null>(null);
 const { selectedIds, items: needItems } = storeToRefs(needs);
 const selectedNeedSet = computed(() => new Set(selectedIds.value.map(String)));
 function isNeedChecked(id: string) {
@@ -239,6 +243,19 @@ const showSelectionFloat = computed(
 
 /** Categorías de necesidades abiertas (por defecto todas colapsadas). */
 const openCategories = ref<Record<string, boolean>>({});
+const listFilter = ref<Category | 'all'>('all');
+
+const populatedCategories = computed(() =>
+  CATEGORY_ORDER.filter((c) => needs.grouped[c].length)
+);
+
+const featuredItems = computed(() =>
+  needItems.value.filter((i) => isNeedChecked(i._id)).slice(0, 8)
+);
+
+function showCategory(cat: Category) {
+  return listFilter.value === 'all' || listFilter.value === cat;
+}
 
 function isCategoryOpen(cat: Category) {
   return Boolean(openCategories.value[cat]);
@@ -301,6 +318,7 @@ const selectedOptions = computed(() =>
 onMounted(() => {
   needs.fetchNeeds();
   restoreSpokenSession();
+  applyHomeAction();
 });
 
 function saveSpokenSession() {
@@ -470,6 +488,17 @@ function openPhotoCapture() {
   if (identifyingPhoto.value || searching.value) return;
   error.value = '';
   photoInput.value?.click();
+}
+
+function applyHomeAction() {
+  const action = String(route.query.action || '');
+  if (!action) return;
+  router.replace({ name: 'needs' });
+  nextTick(() => {
+    if (action === 'dictate') startSpokenList();
+    else if (action === 'photo') openPhotoCapture();
+    else if (action === 'add') searchInput.value?.focus();
+  });
 }
 
 function fileToCompressedDataUrl(file: File, maxSide = 960, quality = 0.78): Promise<string> {
@@ -898,12 +927,20 @@ async function confirmReset() {
   <main
     class="container fade-in"
     :class="{ 'has-selection-float': showSelectionFloat }"
-    style="padding: 1.25rem 0 6rem"
+    style="padding: 1.25rem 0 7.25rem"
   >
-    <section class="panel" style="margin-top: 0">
-      <div class="page-header">
-        <h1 class="page-title">Lista de compras</h1>
-        <div class="header-tools">
+    <section class="home-hero">
+      <div
+        class="home-hero-bg"
+        style="background-image: url('https://images.unsplash.com/photo-1504674900247-0877df9cc836?auto=format&fit=crop&w=1400&q=70')"
+      />
+      <div class="home-hero-copy">
+        <div class="home-hero-top">
+          <div>
+            <p class="home-kicker">Tu súper, en orden</p>
+            <h1 class="home-hero-title">Lista de compras</h1>
+          </div>
+          <div class="header-tools">
           <button
             class="btn ghost settings-gear"
             type="button"
@@ -931,14 +968,14 @@ async function confirmReset() {
               />
             </svg>
           </RouterLink>
+          </div>
         </div>
-      </div>
-      <div class="field">
-        <label>¿Qué necesitas?</label>
+      <div class="field home-search" style="margin: 0">
         <div class="need-search">
           <input
+            ref="searchInput"
             v-model="name"
-            placeholder="Ej. queso cheddar"
+            placeholder="Buscar en el súper…"
             @keydown.enter.prevent="searchSupers()"
           />
           <button
@@ -956,6 +993,10 @@ async function confirmReset() {
           </button>
         </div>
       </div>
+      </div>
+    </section>
+
+    <section>
       <!-- Cantidad/Súper ocultos: defaults quantity=1, store=other -->
       <input
         ref="photoInput"
@@ -1106,7 +1147,48 @@ async function confirmReset() {
       <p v-if="speechTranscript" class="muted" style="margin-top: 0.6rem">“{{ speechTranscript }}”</p>
     </section>
 
-    <section style="margin-top: 1.25rem">
+    <nav v-if="populatedCategories.length" class="chip-scroll" aria-label="Categorías">
+      <button
+        type="button"
+        class="chip-filter"
+        :class="{ on: listFilter === 'all' }"
+        @click="listFilter = 'all'"
+      >
+        Todas
+      </button>
+      <button
+        v-for="cat in populatedCategories"
+        :key="cat"
+        type="button"
+        class="chip-filter"
+        :class="{ on: listFilter === cat }"
+        @click="listFilter = cat"
+      >
+        {{ needs.categoryLabel(cat) }}
+      </button>
+    </nav>
+
+    <section v-if="featuredItems.length && listFilter === 'all'" class="home-picks">
+      <div class="section-kicker">
+        <h2>Seleccionados</h2>
+        <span class="muted">{{ featuredItems.length }}</span>
+      </div>
+      <div class="picks-scroll">
+        <article
+          v-for="item in featuredItems"
+          :key="'pick-' + item._id"
+          class="pick-card"
+          @click="openNeedDetail(item)"
+        >
+          <img v-if="item.imageUrl" :src="item.imageUrl" alt="" class="pick-photo" />
+          <div v-else class="pick-photo" />
+          <strong>{{ item.name }}</strong>
+          <span class="price">{{ euro((item.estimatedPrice || 0) * (item.quantity || 1)) }}</span>
+        </article>
+      </div>
+    </section>
+
+    <section style="margin-top: 0.5rem">
       <p v-if="needs.loading" class="muted">Cargando…</p>
       <div v-if="!needs.loading && needs.items.length" class="list-reset-bar">
         <button
@@ -1122,16 +1204,21 @@ async function confirmReset() {
         </button>
       </div>
       <template v-for="cat in CATEGORY_ORDER" :key="cat">
-        <div v-if="needs.grouped[cat].length" class="panel category-panel" style="margin-bottom: 0.8rem">
+        <div v-if="needs.grouped[cat].length && showCategory(cat)" class="category-block" style="margin-bottom: 0.9rem">
           <div class="category-header">
             <button
               type="button"
               class="category-toggle"
-              :aria-expanded="isCategoryOpen(cat)"
-              @click="toggleCategory(cat)"
+              :aria-expanded="listFilter === cat || isCategoryOpen(cat)"
+              @click="listFilter === 'all' ? toggleCategory(cat) : undefined"
             >
               <span class="category-toggle-left">
-                <span class="category-chevron" :class="{ open: isCategoryOpen(cat) }" aria-hidden="true">›</span>
+                <span
+                  v-if="listFilter === 'all'"
+                  class="category-chevron"
+                  :class="{ open: isCategoryOpen(cat) }"
+                  aria-hidden="true"
+                >›</span>
                 <strong>{{ needs.categoryLabel(cat) }}</strong>
               </span>
               <span class="category-toggle-meta">
@@ -1152,8 +1239,16 @@ async function confirmReset() {
               </svg>
             </button>
           </div>
-          <div v-show="isCategoryOpen(cat)" class="category-body">
-            <div v-for="item in needs.grouped[cat]" :key="item._id" class="option-row need-row">
+          <div
+            v-show="listFilter === cat || isCategoryOpen(cat)"
+            class="category-body"
+          >
+            <article
+              v-for="item in needs.grouped[cat]"
+              :key="item._id"
+              class="product-card"
+              :class="{ selected: isNeedChecked(item._id) }"
+            >
               <label class="need-check-wrap">
                 <input
                   class="need-check"
@@ -1186,17 +1281,19 @@ async function confirmReset() {
                 </button>
               </div>
               <div class="option-body">
-                <div class="chip">
-                  {{ STORE_LABELS[item.preferredStore] || item.preferredStore }}
-                </div>
-                <strong>{{ item.name }}</strong>
-                <div class="muted" style="font-size: 0.85rem">
-                  {{ item.quantity }} {{ item.unit }}
-                  <span v-if="item.brand"> · {{ item.brand }}</span>
-                  <span v-else-if="item.notes"> · {{ item.notes }}</span>
-                  <span v-if="item.unitPrice"> · {{ item.unitPrice }}</span>
-                  <span v-else-if="item.estimatedPrice != null && item.quantity > 1">
-                    · {{ euro(item.estimatedPrice) }}/ud
+                <strong class="product-name">{{ item.name }}</strong>
+                <div class="product-meta">
+                  <span class="store-pill">
+                    {{ STORE_LABELS[item.preferredStore] || item.preferredStore }}
+                  </span>
+                  <span class="product-meta-line">
+                    {{ item.quantity }} {{ item.unit }}
+                    <template v-if="item.brand"> · {{ item.brand }}</template>
+                    <template v-else-if="item.notes"> · {{ item.notes }}</template>
+                    <template v-if="item.unitPrice"> · {{ item.unitPrice }}</template>
+                    <template v-else-if="item.estimatedPrice != null && item.quantity > 1">
+                      · {{ euro(item.estimatedPrice) }}/ud
+                    </template>
                   </span>
                 </div>
               </div>
@@ -1212,7 +1309,7 @@ async function confirmReset() {
                   ×
                 </button>
               </div>
-            </div>
+            </article>
           </div>
         </div>
       </template>
@@ -1278,14 +1375,19 @@ async function confirmReset() {
     <Teleport to="body">
     <div
       v-if="suggestPreview"
-      class="modal-backdrop modal-backdrop--top suggest-preview-backdrop"
+      class="modal-backdrop modal-backdrop--sheet suggest-preview-backdrop"
       @click.self="closeSuggestPreview"
     >
-      <div class="modal-panel results-modal suggest-preview" role="dialog" aria-modal="true">
-        <div class="results-header">
+      <div
+        class="modal-panel suggest-preview"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="suggest-title"
+      >
+        <div class="results-header suggest-preview-header">
           <div>
-            <h3>Revisa y corrige</h3>
-            <p class="muted" style="margin: 0.2rem 0 0">
+            <h3 id="suggest-title">Revisa y corrige</h3>
+            <p class="suggest-lead">
               Edita cada nombre antes de buscar.
               <template v-if="suggestPreview.basedOn?.dietStyle === 'foto'"> Foto.</template>
               <template v-else-if="suggestPreview.basedOn?.dietStyle === 'voz'"> Lista hablada.</template>
@@ -1373,15 +1475,12 @@ async function confirmReset() {
           <button
             class="suggest-icon-btn primary suggest-confirm"
             type="button"
-            title="Buscar aceptados"
-            :aria-label="`Buscar aceptados (${suggestAcceptedCount})`"
+            title="Buscar"
+            :aria-label="`Buscar ${suggestAcceptedCount} productos`"
             :disabled="!suggestAcceptedCount || searching"
             @click="confirmSuggestPreview"
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true">
-              <path d="M5 12h12M13 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round" />
-            </svg>
-            <span>Buscar aceptados ({{ suggestAcceptedCount }})</span>
+            <span>Buscar ({{ suggestAcceptedCount }})</span>
           </button>
         </div>
       </div>
@@ -1615,7 +1714,7 @@ async function confirmReset() {
             :disabled="picking || searching"
             @click="skipSpokenStep"
           >
-            {{ canSpokenForward ? 'Continuar sin elegir' : 'Terminar sin elegir' }}
+            {{ canSpokenForward ? 'Continuar' : 'Terminar' }}
           </button>
           <button
             class="btn results-footer-btn"
@@ -1623,15 +1722,7 @@ async function confirmReset() {
             :disabled="picking || searching || !selectedCount"
             @click="pickSelected"
           >
-            {{
-              picking
-                ? 'Añadiendo…'
-                : spokenActive && canSpokenForward
-                  ? `Añadir y seguir (${selectedCount})`
-                  : spokenActive
-                    ? `Añadir y terminar (${selectedCount})`
-                    : `Añadir a la lista (${selectedCount})`
-            }}
+            {{ picking ? 'Añadiendo…' : 'Añadir' }}
           </button>
         </div>
       </div>
@@ -1639,26 +1730,27 @@ async function confirmReset() {
 
     <div
       v-if="detailProduct"
-      class="modal-backdrop modal-backdrop--nested"
+      class="modal-backdrop modal-backdrop--sheet"
       @click.self="detailProduct = null"
     >
       <div
-        class="modal-panel product-detail-modal"
+        class="modal-panel product-detail-modal product-detail-sheet"
         role="dialog"
         aria-modal="true"
         aria-labelledby="product-detail-title"
       >
-        <div class="results-header">
-          <h3 id="product-detail-title">Detalle</h3>
+        <div class="results-header product-detail-nav">
           <button
-            class="btn-x"
+            class="btn ghost settings-gear"
             type="button"
             title="Cerrar"
-            aria-label="Cerrar"
+            aria-label="Volver"
             @click="detailProduct = null"
           >
-            ×
+            ←
           </button>
+          <h3 id="product-detail-title">Detalle</h3>
+          <span style="width: 2.5rem" />
         </div>
         <div class="product-detail-body">
           <img
@@ -1675,6 +1767,16 @@ async function confirmReset() {
             />
           </div>
           <strong class="product-detail-title">{{ detailProduct.title }}</strong>
+          <div class="product-detail-price-row">
+            <span class="product-detail-price">{{ euro(detailProduct.price) }}</span>
+            <span v-if="detailProduct.unitPrice" class="muted">{{ detailProduct.unitPrice }}</span>
+            <span
+              v-if="detailProduct.previousPrice && detailProduct.previousPrice !== detailProduct.price"
+              class="chip"
+            >
+              Oferta
+            </span>
+          </div>
           <p v-if="detailProduct.description" class="muted product-detail-desc">
             {{ detailProduct.description }}
           </p>
@@ -1767,7 +1869,12 @@ async function confirmReset() {
         >
           <div class="flow-guide-header">
             <div>
-              <p class="flow-guide-kicker">FridgeOrder</p>
+              <p class="flow-guide-kicker" aria-label="Fridge Order">
+                <span class="wordmark wordmark--sm">
+                  <span class="wordmark-fridge">FRIDGE</span>
+                  <span class="wordmark-order">ORDER</span>
+                </span>
+              </p>
               <h3 id="flow-guide-title">Cómo funciona</h3>
               <p class="muted flow-guide-lead">De la lista a la mesa… y otra vez a la lista según lo que consumes.</p>
             </div>
@@ -1961,7 +2068,7 @@ async function confirmReset() {
           >
             Ninguno
           </button>
-          <RouterLink class="btn" to="/prelist">Ir a comprar</RouterLink>
+          <RouterLink class="btn needs-float-buy" to="/prelist" aria-label="Ir a comprar">Comprar</RouterLink>
         </div>
       </div>
       <div v-show="floatStoresOpen && floatByStore.length" class="needs-float-stores">
@@ -1989,6 +2096,10 @@ async function confirmReset() {
   align-items: center;
   gap: 0.4rem;
   margin-bottom: 0.45rem;
+}
+.wizard-nav .chip {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
 }
 .wizard-loading {
   flex: 1 1 auto;
@@ -2040,7 +2151,7 @@ async function confirmReset() {
   height: 2.4rem;
   color: var(--accent);
   animation: search-bounce 0.9s ease-in-out infinite;
-  filter: drop-shadow(0 6px 10px rgba(56, 189, 248, 0.35));
+  filter: drop-shadow(0 6px 10px var(--accent-glow));
 }
 .search-spinner-cart svg {
   width: 100%;
@@ -2076,15 +2187,16 @@ async function confirmReset() {
 .spoken-icon-btn {
   width: 2.35rem;
   height: 2.35rem;
-  border-radius: 11px;
-  border: 1px solid var(--border);
-  background: rgba(0, 0, 0, 0.22);
+  border-radius: 12px;
+  border: 0;
+  background: rgba(35, 78, 78, 0.55);
   color: var(--text);
   display: grid;
   place-items: center;
   padding: 0;
   cursor: pointer;
   flex-shrink: 0;
+  backdrop-filter: blur(12px);
 }
 .spoken-icon-btn svg {
   width: 1.15rem;
@@ -2103,6 +2215,7 @@ async function confirmReset() {
   justify-content: space-between;
   gap: 0.35rem;
   margin-top: 0.85rem;
+  margin-bottom: 1.35rem;
 }
 .need-search {
   position: relative;
@@ -2138,7 +2251,7 @@ async function confirmReset() {
   cursor: not-allowed;
 }
 .need-search-go:not(:disabled):hover {
-  background: rgba(2, 132, 199, 0.28);
+  background: var(--accent-mid);
   color: var(--accent-strong);
 }
 .icon-action {
@@ -2149,20 +2262,21 @@ async function confirmReset() {
   align-items: center;
   gap: 0.35rem;
   padding: 0.55rem 0.25rem 0.4rem;
-  border-radius: 14px;
-  border: 1px solid var(--border);
-  background: var(--accent-soft);
+  border-radius: 18px;
+  border: 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(35, 78, 78, 0.5));
   color: var(--text);
   cursor: pointer;
+  backdrop-filter: blur(18px) saturate(160%);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.32);
 }
 .icon-action:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
 .icon-action.active {
-  background: rgba(255, 138, 128, 0.18);
-  border-color: rgba(255, 138, 128, 0.45);
-  color: var(--danger);
+  background: linear-gradient(180deg, rgba(240, 138, 28, 0.35), rgba(35, 78, 78, 0.45));
+  color: var(--accent);
 }
 .icon-action.ghost {
   background: transparent;
@@ -2202,12 +2316,12 @@ async function confirmReset() {
   position: fixed;
   left: 50%;
   transform: translateX(-50%);
-  bottom: calc(4.75rem + env(safe-area-inset-bottom, 0px));
+  bottom: calc(6.6rem + env(safe-area-inset-bottom, 0px));
   z-index: 80;
   width: min(560px, calc(100% - 1.25rem));
-  background: rgba(17, 24, 39, 0.97);
-  border: 2.5px solid rgba(56, 189, 248, 0.55);
-  border-radius: 16px;
+  background: var(--surface-elevated);
+  border: 0;
+  border-radius: 22px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
   padding: 0.75rem 0.9rem;
   backdrop-filter: blur(12px);
@@ -2215,33 +2329,41 @@ async function confirmReset() {
 }
 @media (min-width: 800px) {
   .needs-float {
-    bottom: 1.25rem;
+    bottom: calc(6.85rem + env(safe-area-inset-bottom, 0px));
   }
 }
 .needs-float-main {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 0.75rem;
+  flex-wrap: wrap;
+  gap: 0.55rem 0.65rem;
 }
 .needs-float-actions {
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  flex-shrink: 0;
+  flex: 1 1 auto;
+  justify-content: flex-end;
   position: relative;
   z-index: 2;
 }
-.needs-float-sel {
-  padding: 0.45rem 0.65rem;
+.btn.ghost.needs-float-sel {
+  padding: 0.4rem 0.55rem;
   font-size: 0.75rem;
   border-radius: 999px;
   min-height: 2.15rem;
+  background: #ffffff;
+  color: #121212;
+  box-shadow: none;
 }
-.needs-float-sel.active {
-  border-color: var(--accent);
+.btn.ghost.needs-float-sel.active {
   color: var(--accent);
-  background: var(--accent-soft);
+  background: #ffffff;
+}
+.needs-float-buy {
+  padding: 0.55rem 0.95rem;
+  flex-shrink: 0;
 }
 .needs-float-summary {
   display: flex;
@@ -2253,9 +2375,9 @@ async function confirmReset() {
   padding: 0;
   text-align: left;
   cursor: pointer;
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
+  min-width: 9.5rem;
+  flex: 1 1 auto;
+  overflow: visible;
   position: relative;
   z-index: 0;
 }
@@ -2272,10 +2394,12 @@ async function confirmReset() {
 }
 .needs-float-label {
   display: block;
-  font-size: 0.72rem;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  font-size: 0.82rem;
+  font-weight: 650;
+  color: var(--text);
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: nowrap;
 }
 .needs-float-total {
   display: block;
@@ -2448,10 +2572,10 @@ async function confirmReset() {
   max-height: min(88dvh, 720px);
   overflow: auto;
   padding: 1.25rem 1.2rem 1.1rem;
-  border: 1px solid rgba(56, 189, 248, 0.28);
+  border: 1px solid var(--accent-mid);
   background:
-    radial-gradient(520px 220px at 100% 0%, rgba(56, 189, 248, 0.14), transparent 55%),
-    radial-gradient(420px 180px at 0% 100%, rgba(14, 165, 233, 0.1), transparent 50%),
+    radial-gradient(520px 220px at 100% 0%, var(--accent-soft), transparent 55%),
+    radial-gradient(420px 180px at 0% 100%, var(--accent-glow), transparent 50%),
     var(--surface-solid);
   animation: flow-guide-in 0.28s ease-out;
 }
@@ -2531,9 +2655,9 @@ async function confirmReset() {
   place-items: center;
   font-size: 0.95rem;
   font-weight: 800;
-  color: #0b1220;
-  background: linear-gradient(145deg, #7dd3fc, var(--accent-strong));
-  box-shadow: 0 6px 16px rgba(14, 165, 233, 0.35);
+  color: var(--on-accent);
+  background: linear-gradient(145deg, var(--accent-bright), var(--accent-strong));
+  box-shadow: 0 6px 16px var(--accent-glow);
 }
 .flow-guide-copy strong {
   display: block;
@@ -2571,17 +2695,17 @@ async function confirmReset() {
   }
 }
 .flow-guide-step--last .flow-guide-card {
-  border-color: rgba(56, 189, 248, 0.35);
+  border-color: var(--accent-glow);
   background: var(--accent-soft);
 }
 .flow-guide-card--loop {
-  border-color: rgba(52, 211, 153, 0.4);
-  background: rgba(52, 211, 153, 0.12);
+  border-color: rgba(35, 78, 78, 0.7);
+  background: rgba(35, 78, 78, 0.22);
 }
 .flow-guide-num--loop {
-  background: linear-gradient(145deg, #6ee7b7, #34d399);
-  box-shadow: 0 6px 16px rgba(52, 211, 153, 0.3);
-  color: #0b1220;
+  background: var(--structure);
+  box-shadow: 0 6px 16px rgba(35, 78, 78, 0.35);
+  color: var(--text);
 }
 .flow-guide-num--loop svg {
   width: 1.15rem;
@@ -2639,6 +2763,9 @@ async function confirmReset() {
 }
 .category-body {
   margin-top: 0.35rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
 }
 .sr-only-file {
   position: absolute;
@@ -2648,22 +2775,80 @@ async function confirmReset() {
   overflow: hidden;
   pointer-events: none;
 }
+.suggest-preview-backdrop {
+  z-index: 125;
+  background: rgba(0, 0, 0, 0.55);
+}
+.suggest-preview {
+  width: 100%;
+  max-width: none;
+  flex: 1 1 auto;
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  margin: 0;
+  align-self: stretch;
+  border-radius: 0;
+  border: 0;
+  padding: calc(0.85rem + env(safe-area-inset-top, 0px)) 0.9rem 0;
+  box-shadow: none;
+  display: flex;
+  flex-direction: column;
+}
+.suggest-preview-header {
+  align-items: flex-start;
+}
+.suggest-preview .btn-x {
+  width: 2.55rem;
+  height: 2.55rem;
+  border: 0;
+  background: rgba(35, 78, 78, 0.55);
+  color: #fff;
+  font-size: 1.7rem;
+  font-weight: 700;
+  line-height: 1;
+  backdrop-filter: blur(12px);
+}
+.suggest-preview .btn-x:hover {
+  color: var(--accent);
+  background: rgba(35, 78, 78, 0.8);
+}
+.suggest-lead {
+  margin: 0.35rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
 .suggest-list {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.7rem;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 .suggest-row {
   display: flex;
   align-items: center;
-  gap: 0.65rem;
+  gap: 0.7rem;
   width: 100%;
   margin: 0;
-  padding: 0.45rem 0.65rem;
+  padding: 0.8rem 0.9rem;
   box-sizing: border-box;
+  border-radius: 18px;
+  border: 0;
+  background: rgba(255, 255, 255, 0.07);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 10px 24px rgba(0, 0, 0, 0.28);
 }
-.suggest-preview-backdrop {
-  z-index: 125;
+.suggest-row.accepted {
+  background: rgba(35, 78, 78, 0.32);
+  box-shadow: inset 3px 0 0 var(--accent), inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 10px 24px rgba(0, 0, 0, 0.28);
+}
+.suggest-row.rejected {
+  opacity: 0.48;
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 .suggest-edit {
   flex: 1;
@@ -2672,60 +2857,64 @@ async function confirmReset() {
   font-weight: 600;
   line-height: 1.35;
   color: var(--text);
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.5rem 0.65rem;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0.15rem 0;
   outline: none;
   pointer-events: auto;
   -webkit-user-select: text;
   user-select: text;
 }
 .suggest-edit:focus {
-  border-color: var(--accent);
-  background: rgba(0, 0, 0, 0.22);
+  background: transparent;
 }
 .suggest-edit::placeholder {
   color: var(--text-muted);
   font-weight: 500;
 }
 .suggest-add {
-  align-self: flex-start;
-  margin: 0.15rem 0.65rem 0.25rem;
-  padding: 0.35rem 0.15rem;
+  align-self: stretch;
+  margin: 0.1rem 0 0.35rem;
+  padding: 0.75rem 0.9rem;
   border: 0;
-  background: none;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.08);
   color: var(--accent);
   font-weight: 600;
   font-size: 0.9rem;
   cursor: pointer;
+  text-align: left;
+  backdrop-filter: blur(12px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
-.suggest-row.accepted {
-  background: var(--accent-soft);
-  border-radius: 10px;
-}
-.suggest-row.rejected {
-  opacity: 0.55;
-}
-.suggest-footer {
+.suggest-preview .suggest-footer {
   display: flex;
   justify-content: space-between;
   align-items: center;
   flex-wrap: nowrap;
-  gap: 0.45rem;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0.75rem 0.05rem calc(0.85rem + env(safe-area-inset-bottom, 0px));
+  border-top: 0;
+  background: rgba(8, 8, 8, 0.55);
+  backdrop-filter: blur(22px) saturate(140%);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  box-shadow: 0 -18px 36px rgba(0, 0, 0, 0.4);
 }
 .suggest-icon-btn {
-  width: 2.55rem;
-  height: 2.55rem;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  background: rgba(0, 0, 0, 0.22);
-  color: var(--text);
+  width: 2.7rem;
+  height: 2.7rem;
+  border-radius: 14px;
+  border: 0;
+  background: #ffffff;
+  color: #121212;
   display: grid;
   place-items: center;
   padding: 0;
   cursor: pointer;
   position: relative;
+  flex-shrink: 0;
 }
 .suggest-icon-btn svg {
   width: 1.2rem;
@@ -2733,23 +2922,26 @@ async function confirmReset() {
 }
 .suggest-icon-btn.primary {
   background: var(--accent);
-  border-color: var(--accent);
-  color: #0b1220;
+  color: var(--on-accent);
   margin-left: auto;
   width: auto;
-  min-width: 2.55rem;
-  padding: 0 0.85rem;
+  min-width: 2.7rem;
+  height: 2.7rem;
+  padding: 0 1.15rem;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 0.4rem;
   border-radius: 999px;
-  font-size: 0.85rem;
+  font-size: 0.95rem;
   font-weight: 600;
   white-space: nowrap;
+  box-shadow: 0 8px 22px var(--accent-glow);
 }
 .suggest-icon-btn.primary:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+  box-shadow: none;
 }
 .suggest-confirm span {
   line-height: 1;
@@ -2773,8 +2965,8 @@ async function confirmReset() {
 }
 .option-row.selectable.selected {
   background: var(--accent-soft);
-  border-color: rgba(2, 132, 199, 0.45);
-  box-shadow: inset 0 0 0 1px rgba(2, 132, 199, 0.2);
+  border-color: var(--accent-ring);
+  box-shadow: inset 0 0 0 1px var(--accent-soft);
 }
 .qty-controls {
   display: inline-flex;
@@ -2798,7 +2990,7 @@ async function confirmReset() {
   padding: 0;
 }
 .qty-btn:hover {
-  background: rgba(2, 132, 199, 0.22);
+  background: var(--accent-mid);
   border-color: var(--accent);
 }
 .qty-btn--info {
@@ -2837,13 +3029,53 @@ async function confirmReset() {
 }
 .need-photo {
   position: relative;
-  width: 56px;
-  height: 56px;
+  width: 72px;
+  height: 72px;
   flex-shrink: 0;
 }
 .need-photo .thumb {
-  width: 56px;
-  height: 56px;
+  width: 72px;
+  height: 72px;
+}
+.product-card .need-check-wrap {
+  display: grid;
+  place-items: center;
+  width: 1.45rem;
+  height: 1.45rem;
+  margin: 0;
+  cursor: pointer;
+}
+.product-name {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin: 0 0 0.38rem;
+  font-size: 0.94rem;
+  line-height: 1.28;
+  font-weight: 650;
+}
+.product-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem 0.45rem;
+}
+.store-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.48rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text);
+  font-size: 0.7rem;
+  font-weight: 650;
+  line-height: 1.3;
+}
+.product-meta-line {
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.78);
+  line-height: 1.3;
 }
 .need-check-wrap {
   display: grid;
@@ -2863,7 +3095,7 @@ async function confirmReset() {
   width: 56px;
   height: 56px;
   object-fit: cover;
-  border-radius: 12px;
+  border-radius: 16px;
   background: rgba(0, 0, 0, 0.2);
 }
 .thumb.placeholder {
@@ -2880,8 +3112,11 @@ async function confirmReset() {
   text-align: right;
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  justify-content: space-between;
   align-items: flex-end;
+  align-self: stretch;
+  gap: 0.35rem;
+  min-height: 72px;
 }
 .price {
   font-weight: 700;
@@ -2895,13 +3130,13 @@ async function confirmReset() {
   font-size: 0.8rem;
 }
 .btn-x {
-  width: 2rem;
-  height: 2rem;
-  border: 1px solid var(--border);
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 0;
   border-radius: 999px;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 1.35rem;
+  background: rgba(0, 0, 0, 0.28);
+  color: #ffffff;
+  font-size: 1.2rem;
   line-height: 1;
   cursor: pointer;
   display: grid;
@@ -2909,8 +3144,8 @@ async function confirmReset() {
   padding: 0;
 }
 .btn-x:hover {
-  color: var(--danger);
-  border-color: var(--danger);
+  color: var(--accent);
+  background: rgba(240, 138, 28, 0.18);
 }
 .modal-backdrop {
   position: fixed;
@@ -2925,8 +3160,7 @@ async function confirmReset() {
 .modal-backdrop--top {
   place-items: start center;
   align-content: start;
-  padding: 0.5rem 1rem 5.75rem;
-  padding-bottom: calc(5.75rem + env(safe-area-inset-bottom, 0px));
+  padding: 0.5rem 1rem calc(6rem + env(safe-area-inset-bottom, 0px));
 }
 .modal-backdrop--sheet {
   z-index: 120;
@@ -2950,6 +3184,51 @@ async function confirmReset() {
   max-height: min(80vh, 80dvh);
   overflow: auto;
 }
+.product-detail-sheet {
+  width: 100%;
+  max-width: none;
+  flex: 1 1 auto;
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  margin: 0;
+  border-radius: 0;
+  padding: calc(0.75rem + env(safe-area-inset-top, 0px)) 1rem calc(1rem + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+}
+.product-detail-nav {
+  justify-content: space-between;
+  align-items: center;
+}
+.product-detail-nav h3 {
+  margin: 0;
+}
+.product-detail-price-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.45rem 0.7rem;
+}
+.product-detail-price {
+  font-size: 1.65rem;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: -0.03em;
+}
+.home-kicker {
+  margin: 0 0 0.25rem;
+  color: var(--accent);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+.home-hero :deep(.settings-gear) {
+  background: rgba(0, 0, 0, 0.4);
+  border-color: rgba(255, 255, 255, 0.35);
+  color: #fff;
+}
 .product-detail-body {
   display: flex;
   flex-direction: column;
@@ -2961,8 +3240,7 @@ async function confirmReset() {
   max-height: min(52vh, 420px);
   min-height: 220px;
   object-fit: contain;
-  border-radius: 14px;
-  background: rgba(0, 0, 0, 0.25);
+  border-radius: 20px;
 }
 .product-detail-img--empty {
   display: grid;
@@ -3022,10 +3300,16 @@ async function confirmReset() {
 .modal-panel {
   width: min(420px, 100%);
   background: var(--surface-solid);
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  padding: 1.25rem;
+  border: 0;
+  border-radius: var(--radius);
   box-shadow: var(--shadow);
+  padding: 1.25rem 1.2rem 1.15rem;
+}
+.modal-panel.suggest-preview {
+  background:
+    linear-gradient(180deg, rgba(18, 18, 18, 0.72) 0%, rgba(8, 8, 8, 0.82) 100%);
+  backdrop-filter: blur(28px) saturate(140%);
+  -webkit-backdrop-filter: blur(28px) saturate(140%);
 }
 .results-modal {
   width: min(560px, 100%);
@@ -3052,20 +3336,27 @@ async function confirmReset() {
   box-shadow: none;
   display: flex;
   flex-direction: column;
+  background:
+    linear-gradient(180deg, rgba(35, 78, 78, 0.62), rgba(18, 18, 18, 0.48));
+  backdrop-filter: blur(22px) saturate(160%);
+  -webkit-backdrop-filter: blur(22px) saturate(160%);
 }
 .results-modal--compare .btn-x {
-  width: 2.75rem;
-  height: 2.75rem;
-  border-color: rgba(255, 255, 255, 0.35);
+  width: 2.55rem;
+  height: 2.55rem;
+  border: 0;
+  background: rgba(35, 78, 78, 0.55);
   color: #fff;
-  font-size: 1.85rem;
-  font-weight: 800;
+  font-size: 1.7rem;
+  font-weight: 700;
   line-height: 1;
 }
 .results-modal--compare .btn-x:hover {
-  color: #fff;
-  border-color: #fff;
-  background: rgba(255, 255, 255, 0.1);
+  color: var(--accent);
+  background: rgba(35, 78, 78, 0.8);
+}
+.results-modal--compare .results-header {
+  margin-bottom: 0.95rem;
 }
 .results-modal--compare .results-list {
   flex: 1 1 auto;
@@ -3079,10 +3370,17 @@ async function confirmReset() {
   flex-shrink: 0;
   margin: 0;
   padding: 0.75rem 0.15rem calc(0.75rem + env(safe-area-inset-bottom, 0px));
-  border-top: 1px solid var(--border);
-  background: var(--surface-solid);
-  box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.35);
+  border-top: 0;
+  background: rgba(35, 78, 78, 0.42);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  box-shadow: 0 -16px 32px rgba(0, 0, 0, 0.28);
   z-index: 6;
+}
+.results-modal--compare .results-footer .btn.ghost {
+  background: #ffffff;
+  color: #121212;
+  box-shadow: none;
 }
 .results-query-banner {
   display: flex;
@@ -3092,11 +3390,13 @@ async function confirmReset() {
   gap: 0.35rem 0.75rem;
   width: 100%;
   box-sizing: border-box;
-  margin: 0 0 0.55rem;
-  padding: 0.55rem 0.7rem;
-  border-radius: 12px;
-  border: 1px solid rgba(2, 132, 199, 0.4);
-  background: var(--accent-soft);
+  margin: 0 0 1rem;
+  padding: 0.75rem 0.9rem;
+  border-radius: 16px;
+  border: 0;
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(14px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
   flex-shrink: 0;
 }
 .results-query-name {
@@ -3121,7 +3421,8 @@ async function confirmReset() {
   word-break: normal;
 }
 .results-query-edit:focus {
-  border-color: var(--accent);
+  border-color: transparent;
+  background: rgba(255, 255, 255, 0.1);
 }
 .results-query-edit:disabled {
   opacity: 0.7;
@@ -3139,8 +3440,8 @@ async function confirmReset() {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 0.35rem;
-  margin: 0 0 0.55rem;
+  gap: 0.45rem;
+  margin: 0 0 1.05rem;
   flex-shrink: 0;
 }
 .results-sort-label {
@@ -3149,24 +3450,24 @@ async function confirmReset() {
   margin-right: 0.15rem;
 }
 .results-sort-btn {
-  border: 1px solid var(--border);
-  background: rgba(0, 0, 0, 0.18);
-  color: var(--text-muted);
+  border: 0;
+  background: rgba(35, 78, 78, 0.5);
+  color: rgba(255, 255, 255, 0.82);
   border-radius: 999px;
-  padding: 0.28rem 0.7rem;
+  padding: 0.32rem 0.75rem;
   font-size: 0.78rem;
   font-weight: 600;
   cursor: pointer;
+  backdrop-filter: blur(10px);
 }
 .results-sort-btn.active {
   background: var(--accent-soft);
-  border-color: rgba(2, 132, 199, 0.45);
   color: var(--accent);
 }
 .results-compare-grid {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 0.45rem;
+  gap: 0.75rem;
   align-content: start;
   width: 100%;
 }
@@ -3178,17 +3479,19 @@ async function confirmReset() {
 }
 .compare-card {
   display: block;
-  padding: 0.45rem 0.5rem;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: rgba(0, 0, 0, 0.14);
+  padding: 0.55rem 0.55rem;
+  border: 0;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(14px);
   cursor: pointer;
   min-width: 0;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 10px 24px rgba(0, 0, 0, 0.28);
+  transition: background 0.15s ease;
 }
 .compare-card.selected {
-  background: var(--accent-soft);
-  border-color: rgba(2, 132, 199, 0.45);
+  background: rgba(35, 78, 78, 0.72);
+  box-shadow: inset 3px 0 0 var(--accent), inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 10px 24px rgba(0, 0, 0, 0.28);
 }
 .compare-card-row {
   display: grid;
@@ -3318,10 +3621,18 @@ async function confirmReset() {
   font-size: 0.95rem;
 }
 .qty-btn--sm {
-  width: 2.15rem;
-  height: 2.15rem;
-  border-radius: 11px;
-  font-size: 1.25rem;
+  width: 2.05rem;
+  height: 2.05rem;
+  border-radius: 999px;
+  font-size: 1.2rem;
+  border: 0;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+.compare-qty-row .qty-btn--sm:hover {
+  background: rgba(240, 138, 28, 0.28);
+  border: 0;
+  color: var(--accent);
 }
 .results-list {
   overflow: auto;
@@ -3360,11 +3671,16 @@ async function confirmReset() {
 .results-footer--wizard .results-footer-btn {
   flex: 1 1 0;
   min-width: 0;
-  padding: 0.55rem 0.45rem;
-  font-size: 0.72rem;
+  padding: 0.7rem 0.55rem;
+  font-size: 0.95rem;
   line-height: 1.2;
   text-align: center;
-  white-space: normal;
+  white-space: nowrap;
+}
+.results-footer--wizard .results-footer-btn.ghost {
+  background: #ffffff;
+  color: #121212;
+  box-shadow: none;
 }
 .store-group {
   margin-bottom: 0.85rem;
@@ -3401,7 +3717,10 @@ async function confirmReset() {
 .modal-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 0.5rem;
-  margin-top: 1rem;
+  gap: 0.6rem;
+  margin-top: 1.15rem;
+}
+.modal-actions .btn {
+  min-width: 7.5rem;
 }
 </style>

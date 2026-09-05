@@ -1,4 +1,4 @@
-import { guessCategory, type Category } from '@fridgeorder/shared';
+import { guessCategory, normalizeWeekday, type Category } from '@fridgeorder/shared';
 import { config } from '../config.js';
 
 async function chatJson(
@@ -41,13 +41,14 @@ async function chatJson(
 async function chatVisionJson(
   system: string,
   prompt: string,
-  imageDataUrl: string,
+  imageDataUrl: string | string[],
   opts?: { temperature?: number; maxTokens?: number }
 ): Promise<unknown | null> {
   if (!config.openaiApiKey) {
     console.warn('[chatVisionJson] OPENAI_API_KEY vacía');
     return null;
   }
+  const urls = (Array.isArray(imageDataUrl) ? imageDataUrl : [imageDataUrl]).filter(Boolean);
   try {
     const res = await fetch(`${config.openaiBaseUrl}/chat/completions`, {
       method: 'POST',
@@ -66,7 +67,10 @@ async function chatVisionJson(
             role: 'user',
             content: [
               { type: 'text', text: prompt },
-              { type: 'image_url', image_url: { url: imageDataUrl, detail: 'auto' } },
+              ...urls.map((url) => ({
+                type: 'image_url' as const,
+                image_url: { url, detail: 'auto' as const },
+              })),
             ],
           },
         ],
@@ -342,20 +346,31 @@ export async function generateMealPlan(input: {
   blockedDishes?: string[];
 }) {
   const days = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado', 'domingo'];
-  const slots = ['desayuno', 'comida', 'cena'] as const;
+  const slots = ['desayuno', 'almuerzo', 'merienda', 'cena'] as const;
 
   const ai = (await chatJson(
-    `Planificador de comidas semanal en España. Equilibra proteínas, vegetales y carbohidratos a lo largo del día y la semana.
-JSON: {"meals":[{"day":"lunes","slot":"desayuno|comida|cena","title":string,"ingredients":string[],"usesPantryNames":string[],"nutritionNote":{"summary":string,"protein":string,"vegetables":string,"carbs":string}}],"preps":[{"title":string,"whenLabel":string,"durationMinutes":number,"ingredients":string[],"freezable":boolean,"storageNotes":string,"forMeals":string[]}]}
-Respeta preferencias, no sugieras platos bloqueados, prioriza liked y despensa.`,
+    `Planificador de comidas semanal en España. El batch cooking existe PARA que haya comida los 7 días.
+Reglas:
+1) Siempre 28 comidas: 4 por día (desayuno, almuerzo, merienda, cena) de lunes a domingo. Nunca dejes un día vacío.
+2) Usa day sin tildes: lunes, martes, miercoles, jueves, viernes, sabado, domingo.
+3) Primero diseña preps de batch (bases: proteína, verdura, salsa, grano) que cubran el máximo de almuerzos y cenas de la semana.
+4) Cada comida tiene source: "batch" si se monta/recalienta con una prep, o "same_day" si hay que cocinarla ese día. Si el batch no cubre ese plato, source DEBE ser same_day.
+5) cookDays son los días con más cocina del natural; el resto de días igual tienen 4 comidas, preferentemente de batch. Desayunos y meriendas pueden ser same_day rápidos.
+6) Si source es batch, pon fromPrepTitle con el título exacto de la prep y di en nutritionNote que se recalienta o se monta.
+JSON: {"meals":[{"day":"lunes","slot":"desayuno|almuerzo|merienda|cena","title":string,"ingredients":string[],"usesPantryNames":string[],"source":"batch|same_day","fromPrepTitle":string,"nutritionNote":{"summary":string,"protein":string,"vegetables":string,"carbs":string}}],"preps":[{"title":string,"whenLabel":string,"durationMinutes":number,"ingredients":string[],"freezable":boolean,"storageNotes":string,"forMeals":string[]}]}
+Respeta preferencias, no sugieras platos bloqueados, prioriza liked y despensa.
+Si prefs.otherGoal está definido, trátalo como objetivo personalizado del usuario.
+Las meriendas deben ser ligeras.`,
     JSON.stringify(input)
   )) as {
     meals?: {
       day: string;
-      slot: 'desayuno' | 'comida' | 'cena';
+      slot: 'desayuno' | 'almuerzo' | 'merienda' | 'cena' | 'comida';
       title: string;
       ingredients: string[];
       usesPantryNames?: string[];
+      source?: 'batch' | 'same_day';
+      fromPrepTitle?: string;
       nutritionNote?: {
         summary: string;
         protein?: string;
@@ -376,87 +391,156 @@ Respeta preferencias, no sugieras platos bloqueados, prioriza liked y despensa.`
     }[];
   } | null;
 
-  if (ai?.meals?.length) {
+  const normalizeSlot = (slot: string): (typeof slots)[number] => {
+    const s = slot.toLowerCase();
+    if (s === 'desayuno' || s === 'breakfast') return 'desayuno';
+    if (s === 'merienda' || s === 'snack') return 'merienda';
+    if (s === 'cena' || s === 'dinner') return 'cena';
+    return 'almuerzo';
+  };
+
+  const names = input.pantry.map((p) => p.name);
+  const liked = input.likedDishes || [];
+
+  const fallbackMeal = (day: string, slot: (typeof slots)[number], i: number) => {
+    const base =
+      liked[i % Math.max(liked.length, 1)] ||
+      names[i % Math.max(names.length, 1)] ||
+      'ingredientes varios';
+    const title =
+      slot === 'desayuno'
+        ? `Desayuno con ${base}`
+        : slot === 'almuerzo'
+          ? `Almuerzo: ${base}`
+          : slot === 'merienda'
+            ? `Merienda: ${base}`
+            : `Cena: ${base}`;
     return {
-      meals: ai.meals.map((m) => ({
+      day,
+      slot,
+      title,
+      ingredients: names.slice(0, 4).length ? names.slice(0, 4) : [base, 'verdura', 'aceite'],
+      usesPantryIds: input.pantry.slice(0, 3).map((p) => p.id),
+      source: 'same_day' as const,
+      fromPrepTitle: '',
+      nutritionNote: {
+        summary:
+          slot === 'desayuno'
+            ? 'Fuente de energía y algo de proteína para empezar el día.'
+            : slot === 'merienda'
+              ? 'Tentempié ligero para media tarde.'
+              : 'Incluye proteína, vegetales y una porción moderada de carbohidratos.',
+        protein: slot === 'merienda' ? 'opcional' : '1 porción',
+        vegetables: slot === 'desayuno' || slot === 'merienda' ? 'opcional' : '2 porciones',
+        carbs: '1 porción moderada',
+      },
+    };
+  };
+
+  const fillWeek = (
+    incoming: {
+      day: string;
+      slot: string;
+      title: string;
+      ingredients: string[];
+      usesPantryIds: string[];
+      source?: 'batch' | 'same_day';
+      fromPrepTitle?: string;
+      nutritionNote: {
+        summary: string;
+        protein?: string;
+        vegetables?: string;
+        carbs?: string;
+      };
+    }[]
+  ) => {
+    const byKey = new Map<string, (typeof incoming)[number]>();
+    for (const m of incoming) {
+      const day = normalizeWeekday(m.day);
+      if (!day) continue;
+      const slot = normalizeSlot(m.slot);
+      const fromPrepTitle = (m.fromPrepTitle || '').trim();
+      byKey.set(`${day}:${slot}`, {
+        ...m,
+        day,
+        slot,
+        source: m.source === 'batch' || fromPrepTitle ? 'batch' : 'same_day',
+        fromPrepTitle,
+      });
+    }
+    const meals = [];
+    let i = 0;
+    for (const day of days) {
+      for (const slot of slots) {
+        meals.push(byKey.get(`${day}:${slot}`) || fallbackMeal(day, slot, i));
+        i++;
+      }
+    }
+    return meals;
+  };
+
+  if (ai?.meals?.length) {
+    const meals = fillWeek(
+      ai.meals.map((m) => ({
         day: m.day,
-        slot: m.slot,
+        slot: normalizeSlot(m.slot),
         title: m.title,
         ingredients: m.ingredients || [],
         usesPantryIds: (m.usesPantryNames || [])
           .map((name) => input.pantry.find((p) => p.name.toLowerCase() === name.toLowerCase())?.id)
           .filter(Boolean) as string[],
+        source: m.source === 'batch' || m.fromPrepTitle ? 'batch' : 'same_day',
+        fromPrepTitle: (m.fromPrepTitle || '').trim(),
         nutritionNote: m.nutritionNote || {
           summary: 'Plato con equilibrio orientativo de proteína, vegetales y carbohidratos.',
         },
-      })),
-      preps: (ai.preps || []).map((p) => ({
-        title: p.title,
-        whenLabel: p.whenLabel || 'Domingo',
-        durationMinutes: p.durationMinutes || 30,
-        ingredients: p.ingredients || [],
-        freezable: Boolean(p.freezable),
-        storageNotes: p.storageNotes || '',
-        forMeals: p.forMeals || [],
-      })),
-    };
+      }))
+    );
+    const pantryNames = input.pantry.map((p) => p.name);
+    const preps = (ai.preps || []).length
+      ? (ai.preps || []).map((p) => ({
+          title: p.title,
+          whenLabel: p.whenLabel || 'Día de batch',
+          durationMinutes: p.durationMinutes || 30,
+          ingredients: p.ingredients || [],
+          freezable: Boolean(p.freezable),
+          storageNotes: p.storageNotes || '',
+          forMeals: p.forMeals || [],
+        }))
+      : [
+          {
+            title: 'Base de verduras cocidas',
+            whenLabel: 'Día de batch',
+            durationMinutes: 40,
+            ingredients: pantryNames.slice(0, 3).length ? pantryNames.slice(0, 3) : ['verdura', 'aceite', 'sal'],
+            freezable: true,
+            storageNotes: 'Nevera 3-4 días o congelar en porciones.',
+            forMeals: meals.filter((m) => m.slot === 'almuerzo' || m.slot === 'cena').slice(0, 3).map((m) => m.title),
+          },
+        ];
+    return { meals, preps };
   }
 
-  const names = input.pantry.map((p) => p.name);
-  const liked = input.likedDishes || [];
-  const meals = [];
-  let i = 0;
-  for (const day of days) {
-    for (const slot of slots) {
-      const base =
-        liked[i % Math.max(liked.length, 1)] ||
-        names[i % Math.max(names.length, 1)] ||
-        'ingredientes varios';
-      const title =
-        slot === 'desayuno'
-          ? `Desayuno con ${base}`
-          : slot === 'comida'
-            ? `Comida: ${base}`
-            : `Cena: ${base}`;
-      meals.push({
-        day,
-        slot,
-        title,
-        ingredients: names.slice(0, 4).length ? names.slice(0, 4) : [base, 'verdura', 'aceite'],
-        usesPantryIds: input.pantry.slice(0, 3).map((p) => p.id),
-        nutritionNote: {
-          summary:
-            slot === 'desayuno'
-              ? 'Fuente de energía y algo de proteína para empezar el día.'
-              : 'Incluye proteína, vegetales y una porción moderada de carbohidratos.',
-          protein: '1 porción',
-          vegetables: slot === 'desayuno' ? 'opcional' : '2 porciones',
-          carbs: '1 porción moderada',
-        },
-      });
-      i++;
-    }
-  }
-
+  const meals = fillWeek([]);
   return {
     meals,
     preps: [
       {
         title: 'Base de verduras cocidas',
-        whenLabel: 'Domingo',
+        whenLabel: 'Día de batch',
         durationMinutes: 40,
-        ingredients: names.slice(0, 3),
+        ingredients: names.slice(0, 3).length ? names.slice(0, 3) : ['verdura', 'aceite', 'sal'],
         freezable: true,
-        storageNotes: 'Heladera 3-4 días o congelar en porciones.',
-        forMeals: meals.filter((m) => m.slot !== 'desayuno').slice(0, 3).map((m) => m.title),
+        storageNotes: 'Nevera 3-4 días o congelar en porciones.',
+        forMeals: meals.filter((m) => m.slot === 'almuerzo' || m.slot === 'cena').slice(0, 3).map((m) => m.title),
       },
       {
         title: 'Salsa de tomate casera',
-        whenLabel: 'Domingo',
+        whenLabel: 'Día de batch',
         durationMinutes: 35,
         ingredients: ['tomate', 'cebolla', 'ajo', 'aceite'],
         freezable: true,
-        storageNotes: 'Heladera 4 días; congelar hasta 2 meses.',
+        storageNotes: 'Nevera 4 días; congelar hasta 2 meses.',
         forMeals: meals.filter((m) => /pasta|salsa|albóndig/i.test(m.title)).map((m) => m.title),
       },
     ],
@@ -591,9 +675,12 @@ JSON: {"servings":number,"steps":string[],"prepMinutes":number,"cookMinutes":num
 export async function generateBatchSession(input: {
   preps: { title: string; durationMinutes?: number; ingredients: string[] }[];
   meals: { title: string; day: string }[];
+  cookDay?: string;
 }) {
+  const cookDay = input.cookDay || 'el día elegido';
   const ai = (await chatJson(
-    `Organiza una sesión de batch cooking en español. JSON: {"totalMinutes":number,"steps":[{"order":number,"task":string,"parallelWith":number[],"minutes":number}],"containers":string[],"fridge":string[],"freezer":string[],"eatFirst":string[]}`,
+    `Organiza una sesión de batch cooking en español para ${cookDay}. El usuario cocina todas las preparaciones ese día para usarlas durante la semana.
+JSON: {"totalMinutes":number,"steps":[{"order":number,"task":string,"parallelWith":number[],"minutes":number}],"containers":string[],"fridge":string[],"freezer":string[],"eatFirst":string[]}`,
     JSON.stringify(input)
   )) as {
     totalMinutes?: number;
@@ -616,7 +703,7 @@ export async function generateBatchSession(input: {
   }
 
   const steps = [
-    { order: 1, task: 'Encender el horno y sacar ingredientes', parallelWith: [], minutes: 5 },
+    { order: 1, task: `Encender el horno y sacar ingredientes (${cookDay})`, parallelWith: [], minutes: 5 },
     { order: 2, task: 'Cortar todas las verduras', parallelWith: [1], minutes: 20 },
     { order: 3, task: 'Preparar bases (salsa / caldo / legumbres)', parallelWith: [], minutes: 35 },
     {
@@ -669,9 +756,11 @@ export async function suggestReplacementMeal(input: {
   const alt =
     input.slot === 'desayuno'
       ? 'Tostadas con tomate y huevo'
-      : input.pantryNames[0]
-        ? `${input.pantryNames[0]} salteado con verduras`
-        : 'Pasta con verduras de temporada';
+      : input.slot === 'merienda'
+        ? 'Yogur con fruta y frutos secos'
+        : input.pantryNames[0]
+          ? `${input.pantryNames[0]} salteado con verduras`
+          : 'Pasta con verduras de temporada';
   return {
     title: alt,
     ingredients: input.pantryNames.slice(0, 4).length
@@ -972,4 +1061,214 @@ Reglas:
   }
 
   return { items: items.slice(0, 12), source: 'ai' };
+}
+
+export type NutritionLevel = 'bad' | 'warn' | 'ok';
+
+export interface NutritionFactor {
+  id: string;
+  side: 'negative' | 'positive';
+  label: string;
+  hint: string;
+  value: string;
+  level: NutritionLevel;
+  detail: string;
+}
+
+export interface NutritionProductCard {
+  name: string;
+  brand: string;
+  score: number;
+  scoreLabel: string;
+  calories: string;
+  protein: string;
+  carbs: string;
+  fat: string;
+  sugar: string;
+  salt: string;
+  fiber: string;
+  verdict: string;
+  betterOption: string;
+  factors: NutritionFactor[];
+}
+
+const FACTOR_IDS = ['additives', 'salt', 'satFat', 'sugar', 'protein', 'calories', 'fiber'] as const;
+
+function scoreLabelFrom(score: number) {
+  if (score < 30) return 'Malo';
+  if (score < 50) return 'Mediocre';
+  if (score < 75) return 'Bueno';
+  return 'Excelente';
+}
+
+function clampLevel(raw: unknown): NutritionLevel {
+  const v = String(raw || '').toLowerCase();
+  if (v === 'bad' || v === 'malo' || v === 'red') return 'bad';
+  if (v === 'ok' || v === 'good' || v === 'green' || v === 'bueno') return 'ok';
+  return 'warn';
+}
+
+function parseFactors(raw: unknown): NutritionFactor[] {
+  if (!Array.isArray(raw)) return [];
+  const out: NutritionFactor[] = [];
+  for (const row of raw) {
+    if (!row || typeof row !== 'object') continue;
+    const o = row as Record<string, unknown>;
+    const id = String(o.id || o.key || '').slice(0, 24);
+    if (!id) continue;
+    const side = String(o.side || '') === 'positive' ? 'positive' : 'negative';
+    out.push({
+      id,
+      side,
+      label: String(o.label || id).slice(0, 40),
+      hint: String(o.hint || o.description || '').slice(0, 80),
+      value: String(o.value || 'n/d').slice(0, 32),
+      level: clampLevel(o.level),
+      detail: String(o.detail || '').slice(0, 320),
+    });
+  }
+  return out;
+}
+
+function fallbackFactors(p: Record<string, unknown>): NutritionFactor[] {
+  return [
+    {
+      id: 'additives',
+      side: 'negative',
+      label: 'Aditivos',
+      hint: 'Revisa la lista de ingredientes',
+      value: String(p.additives || 'n/d'),
+      level: 'warn',
+      detail: 'Cuenta aditivos a evitar si se leen en el envase (colorantes, edulcorantes, conservantes).',
+    },
+    {
+      id: 'salt',
+      side: 'negative',
+      label: 'Sal',
+      hint: 'Según la etiqueta',
+      value: String(p.salt || 'n/d'),
+      level: 'warn',
+      detail: 'Por 100 g. Más de 1,5 g de sal se considera alto.',
+    },
+    {
+      id: 'satFat',
+      side: 'negative',
+      label: 'Grasas saturadas',
+      hint: 'Según la etiqueta',
+      value: String(p.fat || 'n/d'),
+      level: 'warn',
+      detail: 'Por 100 g. Más de 5 g de saturadas se considera alto.',
+    },
+    {
+      id: 'sugar',
+      side: 'negative',
+      label: 'Azúcar',
+      hint: 'Según la etiqueta',
+      value: String(p.sugar || 'n/d'),
+      level: 'warn',
+      detail: 'Por 100 g. Más de 22,5 g de azúcares se considera alto.',
+    },
+    {
+      id: 'protein',
+      side: 'positive',
+      label: 'Proteínas',
+      hint: 'Según la etiqueta',
+      value: String(p.protein || 'n/d'),
+      level: 'ok',
+      detail: 'Por 100 g. A partir de 12 g se considera una buena fuente.',
+    },
+    {
+      id: 'calories',
+      side: 'positive',
+      label: 'Valor energético',
+      hint: 'Según la etiqueta',
+      value: String(p.calories || 'n/d'),
+      level: 'ok',
+      detail: 'kcal por 100 g o por ración, según lo que se lea en el envase.',
+    },
+  ];
+}
+
+export async function analyzeProductNutrition(images: string[]): Promise<{
+  products: NutritionProductCard[];
+  recommendation: string;
+  winnerIndex: number | null;
+} | null> {
+  const urls = images.filter((u) => u.startsWith('data:image/')).slice(0, 2);
+  if (!urls.length) return null;
+
+  const dual = urls.length > 1;
+  const ai = (await chatVisionJson(
+    `Eres un dietista de supermercado en España, estilo ficha Yuka. Lees envase y tabla nutricional.
+Responde SOLO JSON:
+{"products":[{
+  "name":string,"brand":string,"score":0-100,
+  "calories":string,"protein":string,"carbs":string,"fat":string,"sugar":string,"salt":string,"fiber":string,
+  "verdict":string,"betterOption":string,
+  "factors":[{"id":"additives|salt|satFat|sugar|protein|calories|fiber","side":"negative|positive","label":string,"hint":string,"value":string,"level":"bad|warn|ok","detail":string}]
+}],"recommendation":string,"winnerIndex":0}
+Reglas:
+- score 0-100 (menos azúcar/sal/aditivos y más proteína/fibra = más nota).
+- factors OBLIGATORIOS: additives, salt, satFat, sugar (side negative) y protein, calories (side positive). Añade fiber en positivo si aporta.
+- hint: frase corta tipo "Bastante dulce", "Demasiado salado", "Algunas proteínas", "Bajo en calorías".
+- value: cifra con unidad (26 g, 1,2 g, 151 kcal, 9). Por 100 g si se lee.
+- level: bad=rojo, warn=naranja, ok=verde.
+- detail: 1-2 frases al abrir la fila (qué implica y umbral).
+- Si no se lee un dato: value "n/d", hint "No se lee en la foto", level warn.
+- betterOption: alternativa de súper español o "Cómpralo, es una opción sólida".
+- Dos fotos: winnerIndex 0 o 1.`,
+    dual
+      ? 'Foto 1 = producto A. Foto 2 = producto B. Analiza cada uno con factors y di cuál conviene más.'
+      : 'Analiza este producto con factors negativo/positivo, nota /100 y si conviene comprarlo.',
+    urls,
+    { temperature: 0.15, maxTokens: 1400 }
+  )) as {
+    products?: Record<string, unknown>[];
+    recommendation?: string;
+    winnerIndex?: number;
+  } | null;
+
+  if (!ai?.products?.length) return null;
+
+  const products = ai.products.slice(0, 2).map((p) => {
+    const score = Math.max(0, Math.min(100, Number(p.score) || 50));
+    const factors = parseFactors(p.factors);
+    const known = new Set(factors.map((f) => f.id));
+    const merged = [
+      ...factors.filter((f) => (FACTOR_IDS as readonly string[]).includes(f.id)),
+      ...fallbackFactors(p).filter((f) => !known.has(f.id)),
+    ];
+    return {
+      name: String(p.name || 'Producto').slice(0, 80),
+      brand: String(p.brand || '').slice(0, 40),
+      score,
+      scoreLabel: scoreLabelFrom(score),
+      calories: String(p.calories || 'n/d'),
+      protein: String(p.protein || 'n/d'),
+      carbs: String(p.carbs || 'n/d'),
+      fat: String(p.fat || 'n/d'),
+      sugar: String(p.sugar || 'n/d'),
+      salt: String(p.salt || 'n/d'),
+      fiber: String(p.fiber || 'n/d'),
+      verdict: String(p.verdict || '').slice(0, 280),
+      betterOption: String(p.betterOption || '').slice(0, 220),
+      factors: merged,
+    };
+  });
+
+  let winnerIndex: number | null = null;
+  if (products.length > 1) {
+    const w = Number(ai.winnerIndex);
+    winnerIndex = w === 0 || w === 1 ? w : products[0]!.score >= products[1]!.score ? 0 : 1;
+  }
+
+  return {
+    products,
+    recommendation:
+      String(ai.recommendation || '').slice(0, 400) ||
+      (products.length > 1
+        ? `Mejor opción: ${products[winnerIndex ?? 0]!.name}.`
+        : products[0]!.betterOption || products[0]!.verdict),
+    winnerIndex,
+  };
 }

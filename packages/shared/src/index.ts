@@ -70,8 +70,51 @@ export const TRIP_STATUSES = ['planned', 'in_progress', 'completed'] as const;
 export type TripStatus = (typeof TRIP_STATUSES)[number];
 
 /** Meal slot within a day */
-export const MEAL_SLOTS = ['desayuno', 'comida', 'cena'] as const;
+export const MEAL_SLOTS = ['desayuno', 'almuerzo', 'merienda', 'cena'] as const;
 export type MealSlot = (typeof MEAL_SLOTS)[number];
+
+export const MEAL_SLOT_LABELS: Record<MealSlot, string> = {
+  desayuno: 'Desayuno',
+  almuerzo: 'Almuerzo',
+  merienda: 'Merienda',
+  cena: 'Cena',
+};
+
+export const WEEKDAYS = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado', 'domingo'] as const;
+export type Weekday = (typeof WEEKDAYS)[number];
+
+/** Map IA / accented / English day names onto the calendar keys used in the app. */
+export function normalizeWeekday(day: string): Weekday | null {
+  const s = day
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+  const map: Record<string, Weekday> = {
+    lunes: 'lunes',
+    monday: 'lunes',
+    lun: 'lunes',
+    martes: 'martes',
+    tuesday: 'martes',
+    mar: 'martes',
+    miercoles: 'miercoles',
+    wednesday: 'miercoles',
+    mie: 'miercoles',
+    jueves: 'jueves',
+    thursday: 'jueves',
+    jue: 'jueves',
+    viernes: 'viernes',
+    friday: 'viernes',
+    vie: 'viernes',
+    sabado: 'sabado',
+    saturday: 'sabado',
+    sab: 'sabado',
+    domingo: 'domingo',
+    sunday: 'domingo',
+    dom: 'domingo',
+  };
+  return map[s] || null;
+}
 
 /**
  * Lifecycle of a planned meal — reserved for flexible calendar / Tinder / batch cooking.
@@ -113,6 +156,7 @@ export const NUTRITION_GOALS = [
   'use_food_better',
   'reduce_waste',
   'more_variety',
+  'other',
 ] as const;
 export type NutritionGoal = (typeof NUTRITION_GOALS)[number];
 
@@ -262,6 +306,7 @@ export const mealGenerateSchema = z.object({
 export const mealPreferencesSchema = z.object({
   onboardingCompleted: z.boolean().optional(),
   goals: z.array(z.enum(NUTRITION_GOALS)).optional(),
+  otherGoal: z.string().max(200).optional(),
   dietStyle: z.enum(DIET_STYLES).optional(),
   adults: z.number().int().min(0).max(20).optional(),
   children: z.number().int().min(0).max(20).optional(),
@@ -345,6 +390,21 @@ export const householdCreateSchema = z.object({
 
 export const householdJoinSchema = z.object({
   inviteCode: z.string().min(4).max(32),
+});
+
+export const cookReviewSchema = z.object({
+  rating: z.number().int().min(1).max(5).optional(),
+  photoDataUrl: z
+    .string()
+    .max(6_000_000)
+    .refine((v) => !v || v.startsWith('data:image/'), 'Debe ser data URL de imagen')
+    .optional(),
+  notes: z.string().max(400).optional(),
+});
+
+export const compareProductsSchema = z.object({
+  imageDataUrl: identifyProductImageSchema.shape.imageDataUrl,
+  imageDataUrlB: identifyProductImageSchema.shape.imageDataUrl.optional(),
 });
 
 export function guessCategory(name: string): Category {

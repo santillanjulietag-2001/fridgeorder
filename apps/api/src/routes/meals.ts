@@ -5,6 +5,7 @@ import {
   mealGenerateSchema,
   mealPreferencesSchema,
   mealSwipeSchema,
+  normalizeWeekday,
   recipeOptionsSchema,
 } from '@fridgeorder/shared';
 import { requireAuth, type AuthRequest } from '../middleware/auth.js';
@@ -19,6 +20,7 @@ import {
   suggestDishCards,
   suggestReplacementMeal,
 } from '../services/ai.js';
+import { upsertSavedRecipe, bodyFromMeal, explanationFromMeal } from '../services/savedRecipes.js';
 import { productKeyFromName } from '../utils/access.js';
 
 export const mealsRouter = Router();
@@ -40,7 +42,8 @@ function addDaysIso(iso: string, days: number) {
 
 function dateForWeekDay(weekStart: string, day: string): string {
   const days = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado', 'domingo'];
-  const idx = days.indexOf(day.toLowerCase());
+  const key = normalizeWeekday(day) || day.toLowerCase();
+  const idx = days.indexOf(key);
   if (idx < 0) return weekStart;
   return addDaysIso(weekStart, idx);
 }
@@ -98,7 +101,7 @@ mealsRouter.post('/swipe', async (req: AuthRequest, res) => {
     notes: parsed.data.notes || '',
     at: new Date(),
   });
-  if (parsed.data.rating === 'never_again') {
+  if (parsed.data.rating === 'never_again' || parsed.data.rating === 'dislike') {
     if (!prefs.neverSuggestDishKeys.includes(parsed.data.dishKey)) {
       prefs.neverSuggestDishKeys.push(parsed.data.dishKey);
     }
@@ -231,13 +234,29 @@ mealsRouter.post('/generate', async (req: AuthRequest, res) => {
     preps,
   });
 
-  // link prep -> meals by title match
+  // link prep -> meals by title match, then mark batch vs same-day
   for (const prep of plan.preps) {
     const related = generated.preps.find((p) => p.title === prep.title);
-    if (!related?.forMeals?.length) continue;
-    prep.usedByMealIds = plan.meals
-      .filter((m) => related.forMeals!.some((t) => m.title.toLowerCase().includes(t.toLowerCase()) || t.toLowerCase().includes(m.title.toLowerCase())))
-      .map((m) => m._id);
+    const byTitle = plan.meals.filter((m) => {
+      const fromPrep = (m.fromPrepTitle || '').trim().toLowerCase();
+      if (fromPrep && fromPrep === prep.title.toLowerCase()) return true;
+      if (!related?.forMeals?.length) return false;
+      return related.forMeals.some(
+        (t) =>
+          m.title.toLowerCase().includes(t.toLowerCase()) || t.toLowerCase().includes(m.title.toLowerCase())
+      );
+    });
+    prep.usedByMealIds = byTitle.map((m) => m._id);
+    for (const meal of byTitle) {
+      meal.source = 'batch';
+      meal.fromPrepTitle = prep.title;
+      if (!meal.prepIds.some((id) => String(id) === String(prep._id))) {
+        meal.prepIds.push(prep._id);
+      }
+    }
+  }
+  for (const meal of plan.meals) {
+    if (meal.source !== 'batch' && !meal.fromPrepTitle) meal.source = 'same_day';
   }
   await plan.save();
 
@@ -395,12 +414,23 @@ mealsRouter.post('/:planId/meals/:mealId/cook', async (req: AuthRequest, res) =>
     const item = await PantryItem.findOne({ userId: req.userId, productKey: key });
     if (item && item.quantityOnHand > 0) {
       item.quantityOnHand = Math.max(0, item.quantityOnHand - 1);
-      await item.save();
+      if (item.quantityOnHand <= 0) await item.deleteOne();
+      else await item.save();
     }
   }
   meal.status = 'prepared';
   await plan.save();
-  res.json({ plan, meal });
+  const savedRecipe = await upsertSavedRecipe({
+    userId: req.userId!,
+    title: meal.title,
+    explanation: explanationFromMeal(meal),
+    ingredients: meal.ingredients,
+    recipe: bodyFromMeal(meal),
+    nutritionSummary: meal.nutritionNote?.summary || '',
+    cooked: true,
+    source: 'plan',
+  });
+  res.json({ plan, meal, savedRecipe });
 });
 
 mealsRouter.post('/:planId/meals/:mealId/favorite-recipe', async (req: AuthRequest, res) => {
@@ -418,13 +448,38 @@ mealsRouter.post('/:planId/meals/:mealId/favorite-recipe', async (req: AuthReque
     at: new Date(),
   });
   await prefs.save();
-  res.json({ ok: true, preferences: prefs });
+  const savedRecipe = await upsertSavedRecipe({
+    userId: req.userId!,
+    title: meal.title,
+    explanation: explanationFromMeal(meal),
+    ingredients: meal.ingredients,
+    recipe: bodyFromMeal(meal),
+    nutritionSummary: meal.nutritionNote?.summary || '',
+    favorite: true,
+    source: 'plan',
+  });
+  res.json({ ok: true, preferences: prefs, savedRecipe });
 });
 
 mealsRouter.get('/:planId/batch', async (req: AuthRequest, res) => {
   const plan = await MealPlan.findOne({ _id: req.params.planId, userId: req.userId });
   if (!plan) return res.status(404).json({ error: 'Plan no encontrado' });
+
+  const days = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado', 'domingo'];
+  const cookDay = String(req.query.cookDay || plan.batchCookDay || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  if (!days.includes(cookDay)) {
+    return res.status(400).json({ error: 'Elige el día en que vas a cocinar el batch' });
+  }
+  if (plan.batchCookDay !== cookDay) {
+    plan.batchCookDay = cookDay;
+    await plan.save();
+  }
+
   const batch = await generateBatchSession({
+    cookDay,
     preps: plan.preps.map((p) => ({
       title: p.title,
       durationMinutes: p.durationMinutes,
@@ -432,7 +487,7 @@ mealsRouter.get('/:planId/batch', async (req: AuthRequest, res) => {
     })),
     meals: plan.meals.map((m) => ({ title: m.title, day: m.day })),
   });
-  res.json({ batch, preps: plan.preps });
+  res.json({ batch, preps: plan.preps, cookDay });
 });
 
 mealsRouter.post('/:planId/swap', async (req: AuthRequest, res) => {

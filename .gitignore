@@ -7,4 +7,5 @@ apps/web/dev-dist/
 coverage/
 .vite/
 *.local
+apps/web/.tmp-splash/
 scripts/tmp-*.json

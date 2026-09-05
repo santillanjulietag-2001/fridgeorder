@@ -1,0 +1,246 @@
+{
+  "meta": {
+    "name": "Sunrise Citrus Glassmorphism",
+    "source": "Logo FridgeOrder (cesta teal + hoja/manzana naranja) y sistema tech-wellness",
+    "intent": "Identidad visual de FridgeOrder. No cambia flujos ni datos; solo tokens, superficies y acentos.",
+    "mood": ["tech-wellness", "premium", "nocturno", "cristal", "saludable"],
+    "keywords": ["dark mode", "glassmorphism", "sunrise citrus", "teal structure", "floating nav"]
+  },
+  "palette": {
+    "background": {
+      "deep": "#121212",
+      "base": "#121212",
+      "elevated": "#1A1A1A",
+      "soft": "#1A1A1A",
+      "gradient": "#121212",
+      "ambientGlows": [
+        {
+          "color": "rgba(35, 78, 78, 0.28)",
+          "size": "920px 520px",
+          "position": "12% -12%"
+        }
+      ]
+    },
+    "surface": {
+      "glass": "rgba(255, 255, 255, 0.07)",
+      "glassStrong": "rgba(255, 255, 255, 0.10)",
+      "glassTeal": "rgba(35, 78, 78, 0.42)",
+      "solid": "#234E4E",
+      "elevated": "rgba(35, 78, 78, 0.42)",
+      "overlay": "rgba(0, 0, 0, 0.62)"
+    },
+    "accent": {
+      "citrus": "#F08A1C",
+      "structure": "#234E4E",
+      "onAccent": "#FFFFFF",
+      "soft": "rgba(240, 138, 28, 0.16)",
+      "mid": "rgba(240, 138, 28, 0.28)",
+      "ring": "rgba(240, 138, 28, 0.50)",
+      "glow": "rgba(240, 138, 28, 0.32)"
+    },
+    "text": {
+      "primary": "#FFFFFF",
+      "secondary": "rgba(255, 255, 255, 0.62)",
+      "muted": "rgba(255, 255, 255, 0.62)",
+      "inverse": "#121212",
+      "link": "#F08A1C"
+    },
+    "semantic": {
+      "success": "#FFFFFF",
+      "successSoft": "rgba(35, 78, 78, 0.28)",
+      "warn": "#F08A1C",
+      "danger": "#F08A1C",
+      "dangerSoft": "rgba(240, 138, 28, 0.16)",
+      "discount": "#F08A1C"
+    },
+    "border": {
+      "subtle": "rgba(255, 255, 255, 0.22)",
+      "glass": "rgba(255, 255, 255, 0.28)",
+      "strong": "rgba(255, 255, 255, 0.55)",
+      "width": "1px"
+    }
+  },
+  "effects": {
+    "glassmorphism": {
+      "backdropBlur": "18px",
+      "backdropSaturate": "140%",
+      "background": "rgba(255, 255, 255, 0.07)",
+      "border": "1px solid rgba(255, 255, 255, 0.28)",
+      "innerHighlight": "inset 0 1px 0 rgba(255, 255, 255, 0.18)"
+    },
+    "shadows": {
+      "card": "0 16px 36px rgba(0, 0, 0, 0.42)",
+      "float": "0 16px 40px rgba(0, 0, 0, 0.50)",
+      "citrusGlow": "0 8px 22px rgba(240, 138, 28, 0.32)",
+      "imageFloat": "0 16px 36px rgba(0, 0, 0, 0.55)"
+    },
+    "radius": {
+      "sm": "12px",
+      "md": "16px",
+      "lg": "22px",
+      "xl": "28px",
+      "pill": "999px"
+    }
+  },
+  "typography": {
+    "fontFamily": "'Montserrat', system-ui, sans-serif",
+    "displayFamily": "'Montserrat', system-ui, sans-serif",
+    "weights": { "regular": 400, "medium": 500, "semibold": 600, "bold": 700 },
+    "headings": {
+      "color": "#FFFFFF",
+      "letterSpacing": "-0.03em",
+      "weight": 700
+    },
+    "body": {
+      "color": "#FFFFFF",
+      "muted": "rgba(255, 255, 255, 0.62)",
+      "size": "16px",
+      "lineHeight": 1.45
+    },
+    "price": {
+      "color": "#F08A1C",
+      "weight": 700,
+      "size": "1.25rem"
+    },
+    "eyebrow": {
+      "transform": "uppercase",
+      "letterSpacing": "0.14em",
+      "size": "0.72rem",
+      "color": "#F08A1C"
+    }
+  },
+  "components": {
+    "buttonPrimary": {
+      "background": "#F08A1C",
+      "color": "#FFFFFF",
+      "radius": "999px",
+      "padding": "0.8rem 1.25rem",
+      "weight": 600,
+      "shadow": "0 8px 22px rgba(240, 138, 28, 0.32)",
+      "hover": { "filter": "brightness(1.08)", "translateY": "-1px" }
+    },
+    "buttonGhost": {
+      "background": "transparent",
+      "color": "#FFFFFF",
+      "border": "1px solid rgba(255, 255, 255, 0.28)",
+      "radius": "999px"
+    },
+    "card": {
+      "background": "rgba(255, 255, 255, 0.07)",
+      "border": "1px solid rgba(255, 255, 255, 0.28)",
+      "radius": "22px",
+      "padding": "1rem",
+      "backdropFilter": "blur(18px)",
+      "boxShadow": "0 16px 36px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.18)"
+    },
+    "searchInput": {
+      "background": "rgba(0, 0, 0, 0.32)",
+      "border": "1px solid rgba(255, 255, 255, 0.22)",
+      "radius": "999px",
+      "padding": "0.85rem 1.1rem",
+      "icon": "thin stroke, citrus when active",
+      "focusBorder": "#F08A1C"
+    },
+    "chip": {
+      "idle": {
+        "background": "rgba(35, 78, 78, 0.38)",
+        "border": "none",
+        "color": "rgba(255, 255, 255, 0.82)",
+        "radius": "999px"
+      },
+      "selected": {
+        "background": "rgba(240, 138, 28, 0.16)",
+        "border": "none",
+        "color": "#F08A1C"
+      }
+    },
+    "badge": {
+      "background": "#F08A1C",
+      "color": "#FFFFFF",
+      "radius": "10px",
+      "example": "precio / highlight"
+    },
+    "quantityStepper": {
+      "shape": "circular / rounded square",
+      "minusPlus": "thin glyphs",
+      "valueColor": "#F08A1C",
+      "valueWeight": 700
+    },
+    "checkboxRadio": {
+      "accent": "#F08A1C",
+      "selectedFill": "#F08A1C"
+    },
+    "bottomNav": {
+      "position": "floating pill",
+      "background": "linear-gradient(180deg, rgba(255,255,255,0.16), rgba(54,93,97,0.46))",
+      "blur": "18px",
+      "border": "1px solid rgba(255, 255, 255, 0.55)",
+      "radius": "999px",
+      "idleIcon": "#234E4E",
+      "activeIcon": "#F08A1C",
+      "activeBackground": "rgba(18, 18, 18, 0.50)",
+      "iconStyle": "linear outline, stroke 1.75"
+    },
+    "header": {
+      "background": "rgba(18, 18, 18, 0.72)",
+      "blur": "16px",
+      "borderBottom": "1px solid rgba(255, 255, 255, 0.12)",
+      "brandColor": "#FFFFFF"
+    },
+    "listRow": {
+      "layout": "image left, copy center, price/actions right",
+      "imageRadius": "16px",
+      "priceColor": "#F08A1C",
+      "divider": "rgba(255, 255, 255, 0.12)"
+    },
+    "orderSummary": {
+      "background": "rgba(255, 255, 255, 0.07)",
+      "totalColor": "#F08A1C",
+      "totalSize": "1.25rem",
+      "discountColor": "#F08A1C"
+    },
+    "successModal": {
+      "icon": "citrus circular check, white glyph",
+      "primaryCta": "solid orange",
+      "secondaryCta": "ghost outline white"
+    }
+  },
+  "imagery": {
+    "productPhotos": "High-res grocery photography on charcoal, glass cards, citrus price tags",
+    "hero": "Full-bleed food with dark overlay and bold white headline",
+    "icons": "Minimal linear stroke, teal idle, citrus active",
+    "logo": "Teal basket structure, orange leaf and apple"
+  },
+  "screenMapToFridgeOrder": {
+    "home": {
+      "mockup": "Hero + search + category chips + product cards",
+      "app": "NeedsView (lista de compras)"
+    },
+    "productDetail": {
+      "mockup": "Imagen grande, precio citrus, chips, stepper, CTA",
+      "app": "Modal de producto / comparador en NeedsView"
+    },
+    "cart": {
+      "mockup": "Filas glass + resumen sticky + total citrus",
+      "app": "PrelistView + barra flotante de selección en NeedsView"
+    },
+    "checkout": {
+      "mockup": "CTA naranja, estructura teal",
+      "app": "TripView (en el súper) y cierre de compra"
+    },
+    "success": {
+      "mockup": "Check citrus + continuar",
+      "app": "Confirmaciones, vaciar lista, plan generado"
+    },
+    "categories": {
+      "mockup": "Chips outline blanco / activo naranja",
+      "app": "Agrupación por CATEGORY_ORDER y chips de Menú"
+    }
+  },
+  "doNotChange": [
+    "Rutas y nombres de vistas",
+    "Stores Pinia, API client, auth",
+    "Cualquier archivo en apps/api o packages/shared",
+    "Lógica de búsqueda, voz, viajes, despensa o menú"
+  ]
+}

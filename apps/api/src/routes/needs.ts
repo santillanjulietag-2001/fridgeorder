@@ -71,8 +71,12 @@ needsRouter.post('/suggest-basic', async (req: AuthRequest, res) => {
     status: { $in: ['needed', 'selected'] },
   }).select('name');
 
+  const goals = [...(prefs.goals || [])];
+  const customGoal = (prefs.otherGoal || '').trim();
+  if (goals.includes('other') && customGoal) goals.push(customGoal);
+
   const { items, source } = await suggestBasicNutritionalNeeds({
-    goals: prefs.goals || [],
+    goals,
     dietStyle: prefs.dietStyle || 'general',
     allergies: prefs.allergies || [],
     restrictions: prefs.restrictions || [],

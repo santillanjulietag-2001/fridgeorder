@@ -12,10 +12,10 @@ pantryRouter.get('/', async (req: AuthRequest, res) => {
   const filter = await ownershipFilter(req.userId!, householdId);
   if (!filter) return res.status(403).json({ error: 'Sin acceso al hogar' });
 
-  // For personal list, also include items by userId simply
+  const inStock = { quantityOnHand: { $gt: 0 } };
   const items = householdId
-    ? await PantryItem.find(filter).sort({ category: 1, name: 1 })
-    : await PantryItem.find({ userId: req.userId }).sort({ category: 1, name: 1 });
+    ? await PantryItem.find({ ...filter, ...inStock }).sort({ category: 1, name: 1 })
+    : await PantryItem.find({ userId: req.userId, ...inStock }).sort({ category: 1, name: 1 });
 
   res.json({ items });
 });
@@ -32,6 +32,12 @@ pantryRouter.patch('/:id', async (req: AuthRequest, res) => {
     item.quantityOnHand = Math.max(0, item.quantityOnHand - parsed.data.consumed);
   }
   if (parsed.data.notes != null) item.notes = parsed.data.notes;
+
+  if (item.quantityOnHand <= 0) {
+    await item.deleteOne();
+    return res.json({ item: null, deleted: true });
+  }
+
   await item.save();
   res.json({ item });
 });

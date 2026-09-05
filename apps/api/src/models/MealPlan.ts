@@ -52,6 +52,9 @@ export interface IMeal {
   recipe?: IMealRecipe;
   nutritionNote?: IMealNutritionNote;
   prepIds: Types.ObjectId[];
+  /** batch = se come de una preparación hecha antes; same_day = se cocina ese día */
+  source?: 'batch' | 'same_day';
+  fromPrepTitle?: string;
 }
 
 export interface IMealPrep {
@@ -75,6 +78,8 @@ export interface IMealPlan {
   meals: IMeal[];
   /** Anticipated batch/prep items for this week (future) */
   preps: IMealPrep[];
+  /** Weekday chosen for the batch cooking session */
+  batchCookDay?: string;
   generatedFromTripId?: Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
@@ -132,6 +137,8 @@ const mealSchema = new Schema<IMeal>({
   recipe: recipeSchema,
   nutritionNote: nutritionNoteSchema,
   prepIds: [{ type: Schema.Types.ObjectId }],
+  source: { type: String, enum: ['batch', 'same_day'], default: 'same_day' },
+  fromPrepTitle: { type: String, default: '' },
 });
 
 const prepSchema = new Schema<IMealPrep>({
@@ -153,6 +160,7 @@ const mealPlanSchema = new Schema<IMealPlan>(
     weekStart: { type: String, required: true, index: true },
     meals: [mealSchema],
     preps: [prepSchema],
+    batchCookDay: { type: String, default: '' },
     generatedFromTripId: { type: Schema.Types.ObjectId, ref: 'ShoppingTrip' },
   },
   { timestamps: true }
